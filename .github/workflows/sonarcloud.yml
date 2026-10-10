@@ -1,0 +1,43 @@
+name: SonarCloud
+
+on:
+  push:
+    branches: [main, develop, testing]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: turnos_user
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: turnos_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U turnos_user -d turnos_db"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TURNOS_DB_NAME: turnos_db
+      TURNOS_DB_USER: turnos_user
+      TURNOS_DB_PASSWORD: ci-password
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: maven
+      - name: Build, test y análisis
+        run: ./mvnw -B -ntp verify org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
