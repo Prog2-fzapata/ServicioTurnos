@@ -13,13 +13,14 @@ Servicio de turnos y reservas.
 cp .env.example .env
 ```
 
-Completar la clave de la base en `.env`. El archivo no se versiona.
+Completar la clave de la base y el secreto del JWT en `.env` (el mismo valor que `JWT_SECRET` en el `.env` de catálogo). El archivo no se versiona.
 
 | Variable | Descripción | Por defecto |
 | --- | --- | --- |
 | `TURNOS_DB_NAME` | Nombre de la base de datos | `turnos_db` |
 | `TURNOS_DB_USER` | Usuario de la base | `turnos_user` |
 | `TURNOS_DB_PASSWORD` | Clave del usuario | |
+| `JWT_SECRET` | Clave con la que catálogo firma los tokens (HS512): Base64 de al menos 512 bits. Si falta o es más corta, el servicio no arranca | |
 | `POSTGRES_PORT` | Puerto del host donde se publica PostgreSQL | `5433` |
 | `TURNOS_PORT` | Puerto del host donde se publica el servicio | `8082` |
 
@@ -51,3 +52,19 @@ set -a; . ./.env; set +a
 ```
 
 El servicio se conecta a `localhost` en el puerto `POSTGRES_PORT`.
+
+## Seguridad
+
+Turnos no emite tokens: valida el JWT que emite catálogo (`POST /api/authenticate`) con el mismo secreto. Todo exige `Authorization: Bearer <jwt>`, salvo `/actuator/health` y la documentación. Un token ausente, mal firmado, vencido o sin `uid`/`auth` recibe `401`; la falta de rol recibe `403`; ambos en `application/problem+json`. En Swagger UI el botón «Authorize» recibe el token. El `uid` del usuario sale siempre del token.
+
+## Tests
+
+```bash
+./mvnw verify
+```
+
+Los tests de integración levantan su propio PostgreSQL 18 en un contenedor descartable (Testcontainers), así que solo requieren Docker en ejecución; no usan el `.env` ni la base del compose.
+
+## Decisiones de diseño
+
+El registro de decisiones técnicas, con alternativas descartadas y justificación, está en [docs/decisiones.md](docs/decisiones.md).
