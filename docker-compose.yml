@@ -24,6 +24,7 @@ services:
       TURNOS_DB_NAME: ${TURNOS_DB_NAME}
       TURNOS_DB_USER: ${TURNOS_DB_USER}
       TURNOS_DB_PASSWORD: ${TURNOS_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "127.0.0.1:${TURNOS_PORT:-8082}:8082"
     depends_on:
