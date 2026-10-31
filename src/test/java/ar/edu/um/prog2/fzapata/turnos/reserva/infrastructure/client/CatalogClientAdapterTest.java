@@ -1,8 +1,8 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client;
 
-import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeCatalogServer.cutConnection;
-import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeCatalogServer.slow;
-import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeCatalogServer.status;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeHttpServer.cutConnection;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeHttpServer.slow;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeHttpServer.status;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -48,11 +48,11 @@ class CatalogClientAdapterTest {
             .withUserConfiguration(CatalogClientConfiguration.class, JwtPropagationInterceptor.class,
                     CatalogClientAdapter.class, CatalogProfessionalMapper.class);
 
-    private FakeCatalogServer server;
+    private FakeHttpServer server;
 
     @BeforeEach
     void startFakeCatalogAndLogIn() throws Exception {
-        server = new FakeCatalogServer();
+        server = new FakeHttpServer();
         Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
     }
@@ -144,7 +144,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThat(adapter.findProfessional(99L)).isEqualTo(Optional.empty());
-            assertThat(server.requests()).isEqualTo(1);
+            assertThat(server.requestCount()).isEqualTo(1);
         });
     }
 
@@ -154,7 +154,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThat(adapter.findProfessional(15L)).isPresent();
-            assertThat(server.requests()).isEqualTo(3);
+            assertThat(server.requestCount()).isEqualTo(3);
         });
     }
 
@@ -164,7 +164,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThat(adapter.findProfessional(15L)).isPresent();
-            assertThat(server.requests()).isEqualTo(2);
+            assertThat(server.requestCount()).isEqualTo(2);
         });
     }
 
@@ -175,7 +175,7 @@ class CatalogClientAdapterTest {
         withAdapter(adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class)
                     .hasMessageContaining("503");
-            assertThat(server.requests()).isEqualTo(3);
+            assertThat(server.requestCount()).isEqualTo(3);
         });
     }
 
@@ -185,7 +185,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class);
-            assertThat(server.requests()).isEqualTo(3);
+            assertThat(server.requestCount()).isEqualTo(3);
         });
     }
 
@@ -220,7 +220,7 @@ class CatalogClientAdapterTest {
 
         withAdapter("1", adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class);
-            assertThat(server.requests()).isEqualTo(1);
+            assertThat(server.requestCount()).isEqualTo(1);
         });
     }
 
@@ -234,7 +234,7 @@ class CatalogClientAdapterTest {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogResponseException.class)
                     .hasMessageContaining(String.valueOf(httpStatus))
                     .hasMessageNotContaining("cuerpo-secreto").hasMessageNotContaining(USER_TOKEN);
-            assertThat(server.requests()).isEqualTo(1);
+            assertThat(server.requestCount()).isEqualTo(1);
         });
     }
 
@@ -244,7 +244,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogResponseException.class);
-            assertThat(server.requests()).isEqualTo(1);
+            assertThat(server.requestCount()).isEqualTo(1);
         });
     }
 
@@ -262,7 +262,7 @@ class CatalogClientAdapterTest {
 
         withAdapter(adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(IllegalStateException.class);
-            assertThat(server.requests()).isZero();
+            assertThat(server.requestCount()).isZero();
         });
     }
 
