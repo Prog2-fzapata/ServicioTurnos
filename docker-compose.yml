@@ -26,12 +26,18 @@ services:
       TURNOS_DB_PASSWORD: ${TURNOS_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       CATALOGO_BASE_URL: ${CATALOGO_BASE_URL}
+      CATEDRA_BASE_URL: ${CATEDRA_BASE_URL}
+      CATEDRA_JWT: ${CATEDRA_JWT}
       # Parámetros de ajuste opcionales: el valor por defecto está en application.properties. Sin valor aquí, Compose
       # los pasa solo si están definidos en el shell o en el .env, y en ese caso ganan
       CATALOGO_CONNECT_TIMEOUT:
       CATALOGO_READ_TIMEOUT:
       CATALOGO_MAX_ATTEMPTS:
       CATALOGO_INITIAL_BACKOFF:
+      CATEDRA_CONNECT_TIMEOUT:
+      CATEDRA_READ_TIMEOUT:
+      CATEDRA_MAX_ATTEMPTS:
+      CATEDRA_INITIAL_BACKOFF:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:
