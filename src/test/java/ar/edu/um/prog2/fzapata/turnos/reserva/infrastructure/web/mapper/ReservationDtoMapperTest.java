@@ -2,10 +2,12 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Field;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -68,8 +70,10 @@ class ReservationDtoMapperTest {
 
     @Test
     void theResponseHasNoFieldForTheOwnerNorForTheIdsOfTheCatedra() {
-        assertThat(Arrays.stream(ReservationResponse.class.getDeclaredFields()).map(field -> field.getName()))
-                .doesNotContain("userId", "holdId", "requestEventId", "reservationId", "version");
+        List<String> fields = Arrays.stream(ReservationResponse.class.getDeclaredFields()).map(Field::getName).toList();
+
+        assertThat(fields).isNotEmpty().doesNotContain("userId", "holdId", "requestEventId", "reservationId",
+                "version");
     }
 
     // El vencimiento solo tiene sentido mientras el proceso sigue abierto

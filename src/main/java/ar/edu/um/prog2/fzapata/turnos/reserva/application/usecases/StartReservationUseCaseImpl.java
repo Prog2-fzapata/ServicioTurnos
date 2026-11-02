@@ -3,6 +3,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.application.usecases;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
@@ -216,6 +217,8 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
 
     @Override
     public Optional<ReservationProcess> startReservation(ReservationRequest request) {
+        // El mapper del controller devuelve null ante un cuerpo null: se exige acá, antes de usar la solicitud
+        Objects.requireNonNull(request, "La solicitud de reserva es obligatoria");
         Optional<CatalogProfessional> found = catalogClient.findProfessional(request.professionalId());
         if (found.isEmpty()) {
             return Optional.empty();

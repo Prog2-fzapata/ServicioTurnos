@@ -254,6 +254,15 @@ class StartReservationUseCaseImplTest {
         assertThat(result.getPatientLastName()).isEqualTo("Perez");
     }
 
+    // El mapper de la web devuelve null si recibe null: el caso de uso no debe seguir con una solicitud inexistente
+    @Test
+    void aMissingRequestIsRejectedBeforeAskingAnyone() {
+        assertThatThrownBy(() -> useCase.startReservation(null)).isInstanceOf(NullPointerException.class);
+
+        verifyNoInteractions(catalogClient, catedraApiClient);
+        assertThat(store.processes).isEmpty();
+    }
+
     @Test
     void aMissingProfessionalIsEmptyAndNothingElseIsAsked() {
         when(catalogClient.findProfessional(15L)).thenReturn(Optional.empty());
@@ -283,8 +292,9 @@ class StartReservationUseCaseImplTest {
         when(catalogClient.findProfessional(15L)).thenReturn(Optional.of(professional(true, true,
                 monday("09:00", "12:00", true))));
 
-        assertThatThrownBy(() -> useCase.startReservation(new ReservationRequest("42", 15L, date, start)))
-                .isInstanceOf(InvalidSlotException.class);
+        ReservationRequest request = new ReservationRequest("42", 15L, date, start);
+
+        assertThatThrownBy(() -> useCase.startReservation(request)).isInstanceOf(InvalidSlotException.class);
         verify(catalogClient, never()).findAccount();
         verifyNoInteractions(catedraApiClient);
         assertThat(store.processes).isEmpty();
@@ -305,9 +315,10 @@ class StartReservationUseCaseImplTest {
                 monday("09:00", "12:00", true))));
 
         // Hoy lunes 12 a las 10:10: el slot de las 9:30 ya empezó
-        assertThatThrownBy(() -> useCase.startReservation(
-                new ReservationRequest("42", 15L, LocalDate.of(2026, 10, 12), START)))
-                .isInstanceOf(InvalidSlotException.class).hasMessageContaining("pasó");
+        ReservationRequest request = new ReservationRequest("42", 15L, LocalDate.of(2026, 10, 12), START);
+
+        assertThatThrownBy(() -> useCase.startReservation(request)).isInstanceOf(InvalidSlotException.class)
+                .hasMessageContaining("pasó");
         assertThat(store.processes).isEmpty();
     }
 
