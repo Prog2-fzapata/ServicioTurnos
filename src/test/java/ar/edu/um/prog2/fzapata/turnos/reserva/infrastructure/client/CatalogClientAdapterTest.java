@@ -23,6 +23,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogSchedule;
 import ar.edu.um.prog2.fzapata.turnos.shared.config.CatalogClientConfiguration;
@@ -46,7 +47,7 @@ class CatalogClientAdapterTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(CatalogClientConfiguration.class, JwtPropagationInterceptor.class,
-                    CatalogClientAdapter.class, CatalogProfessionalMapper.class);
+                    CatalogClientAdapter.class, CatalogProfessionalMapper.class, CatalogAccountMapper.class);
 
     private FakeHttpServer server;
 
@@ -290,5 +291,74 @@ class CatalogClientAdapterTest {
         withAdapter(adapter -> assertThatThrownBy(() -> adapter.findProfessional(15L))
                 .isInstanceOf(CatalogUnavailableException.class)
                 .hasMessageNotContaining("cuerpo-secreto").hasMessageNotContaining(USER_TOKEN));
+    }
+
+    @Test
+    void returnsTheNameAndSurnameOfTheAccountAskingWithTheJwtOfTheUser() {
+        server.thenRespond(status(200, """
+                {"id": 7, "login": "juan", "firstName": "Juan", "lastName": "Perez", "email": "juan@mail.com",
+                 "imageUrl": null, "langKey": "es", "authorities": ["ROLE_USER"], "campoNuevo": 1}"""));
+
+        withAdapter(adapter -> {
+            CatalogAccount account = adapter.findAccount();
+
+            assertThat(account.getFirstName()).isEqualTo("Juan");
+            assertThat(account.getLastName()).isEqualTo("Perez");
+            assertThat(server.paths()).containsExactly("/api/account");
+            assertThat(server.authorizations()).containsExactly("Bearer " + USER_TOKEN);
+        });
+    }
+
+    // Nombre y apellido son opcionales en el registro: que falten es una respuesta válida, y decide quien la usa
+    @Test
+    void anAccountWithoutNamesIsReturnedWithNullNames() {
+        server.thenRespond(status(200, "{\"id\": 7, \"login\": \"juan\", \"firstName\": null}"));
+
+        withAdapter(adapter -> {
+            CatalogAccount account = adapter.findAccount();
+
+            assertThat(account.getFirstName()).isNull();
+            assertThat(account.getLastName()).isNull();
+        });
+    }
+
+    @Test
+    void recoversWhenCatalogFailsAskingForTheAccountAndThenAnswers() {
+        server.thenRespond(status(503, ""), cutConnection(),
+                status(200, "{\"firstName\": \"Juan\", \"lastName\": \"Perez\"}"));
+
+        withAdapter(adapter -> {
+            assertThat(adapter.findAccount().getFirstName()).isEqualTo("Juan");
+            assertThat(server.requestCount()).isEqualTo(3);
+        });
+    }
+
+    @Test
+    void givesUpAskingForTheAccountAfterExactlyTheConfiguredAttempts() {
+        server.thenRespond(status(503, ""));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(adapter::findAccount).isInstanceOf(CatalogUnavailableException.class);
+            assertThat(server.requestCount()).isEqualTo(3);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 403, 404})
+    void anUnexpectedAnswerAskingForTheAccountIsAMismatchAndIsNotRetried(int status) {
+        server.thenRespond(status(status, "{\"code\":\"X\"}"));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(adapter::findAccount).isInstanceOf(CatalogResponseException.class)
+                    .hasMessageContaining(String.valueOf(status));
+            assertThat(server.requestCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void anUnreadableAccountBodyIsAMismatch() {
+        server.thenRespond(status(200, "esto no es json"));
+
+        withAdapter(adapter -> assertThatThrownBy(adapter::findAccount).isInstanceOf(CatalogResponseException.class));
     }
 }

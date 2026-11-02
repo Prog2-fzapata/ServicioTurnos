@@ -11,8 +11,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidDateRangeException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -60,5 +64,30 @@ public class ReservaExceptionHandler {
             HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", ex.getMessage(),
                 request.getRequestURI());
+    }
+
+    // La app pide los datos faltantes y reintenta
+    @ExceptionHandler(PatientNameRequiredException.class)
+    public ResponseEntity<ProblemDetail> handlePatientNameRequired(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.BAD_REQUEST, "PATIENT_NAME_REQUIRED",
+                "La cuenta necesita nombre y apellido de al menos 2 caracteres para reservar", request.getRequestURI());
+    }
+
+    @ExceptionHandler(InvalidSlotException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidSlot(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.BAD_REQUEST, "INVALID_SLOT",
+                "El horario no está en la agenda del profesional o ya pasó", request.getRequestURI());
+    }
+
+    @ExceptionHandler(SlotUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleSlotUnavailable(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "SLOT_UNAVAILABLE",
+                "El horario ya no está disponible", request.getRequestURI());
+    }
+
+    @ExceptionHandler(ReservationExpiredException.class)
+    public ResponseEntity<ProblemDetail> handleReservationExpired(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_EXPIRED",
+                "El bloqueo del horario venció antes de confirmarse, intente nuevamente", request.getRequestURI());
     }
 }

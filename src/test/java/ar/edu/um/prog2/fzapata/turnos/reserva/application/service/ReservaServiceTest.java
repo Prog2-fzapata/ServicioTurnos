@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,11 +19,14 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.Professional
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Availability;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUseCase;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,6 +40,9 @@ class ReservaServiceTest {
 
     @Mock
     private ApplyReservationTransitionUseCase applyReservationTransitionUseCase;
+
+    @Mock
+    private StartReservationUseCase startReservationUseCase;
 
     @InjectMocks
     private ReservaService reservaService;
@@ -74,5 +81,26 @@ class ReservaServiceTest {
 
         assertThatThrownBy(() -> reservaService.applyTransition(7L, transition))
                 .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
+    }
+
+    @Test
+    void returnsTheReservationThatWasStarted() {
+        ReservationRequest request = new ReservationRequest("42", 15L, LocalDate.of(2026, 10, 19),
+                LocalTime.of(9, 30));
+        ReservationProcess process = ReservationProcess.builder().id(1L).status(ReservationStatus.WAITING_PHONE)
+                .build();
+        when(startReservationUseCase.startReservation(request)).thenReturn(Optional.of(process));
+
+        assertThat(reservaService.startReservation(request)).isSameAs(process);
+    }
+
+    @Test
+    void startingAReservationWithAMissingProfessionalBecomesAProfessionalNotFound() {
+        ReservationRequest request = new ReservationRequest("42", 99L, LocalDate.of(2026, 10, 19),
+                LocalTime.of(9, 30));
+        when(startReservationUseCase.startReservation(request)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.startReservation(request))
+                .isInstanceOf(ProfessionalNotFoundException.class).hasMessageContaining("99");
     }
 }
