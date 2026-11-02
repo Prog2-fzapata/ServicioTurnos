@@ -97,8 +97,8 @@ class TransitionOutcomeLoggerTest {
                     Optional.of(result(outcome, ReservationStatus.HELD, ReservationStatus.WAITING_PHONE)));
         }
 
-        assertThat(appender.list).hasSize(TransitionOutcome.values().length);
-        assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
-                .doesNotContain("Juan").doesNotContain("Perez").doesNotContain("5492615551234"));
+        assertThat(appender.list).hasSize(TransitionOutcome.values().length)
+                .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                        .doesNotContain("Juan").doesNotContain("Perez").doesNotContain("5492615551234"));
     }
 }

@@ -296,8 +296,10 @@ class ApplyReservationTransitionUseCaseImplTest {
         when(repository.findById(ID)).thenAnswer(invocation -> Optional.of(process(ReservationStatus.HELD)));
         when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null));
 
-        assertThatThrownBy(() -> useCase(3)
-                .applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE)))
+        ApplyReservationTransitionUseCaseImpl useCase = useCase(3);
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+
+        assertThatThrownBy(() -> useCase.applyTransition(ID, transition))
                 .isInstanceOf(ReservationConflictException.class);
         verify(repository, times(3)).findById(ID);
         verify(repository, times(3)).save(any());
@@ -308,8 +310,10 @@ class ApplyReservationTransitionUseCaseImplTest {
         when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.HELD)));
         when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null));
 
-        assertThatThrownBy(() -> useCase(1)
-                .applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE)))
+        ApplyReservationTransitionUseCaseImpl useCase = useCase(1);
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+
+        assertThatThrownBy(() -> useCase.applyTransition(ID, transition))
                 .isInstanceOf(ReservationConflictException.class);
         verify(repository, times(1)).save(any());
     }
@@ -319,9 +323,10 @@ class ApplyReservationTransitionUseCaseImplTest {
         when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.HELD)));
         when(repository.save(any())).thenThrow(new IllegalStateException("la base se cayó"));
 
-        assertThatThrownBy(() -> useCase()
-                .applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE)))
-                .isInstanceOf(IllegalStateException.class);
+        ApplyReservationTransitionUseCaseImpl useCase = useCase();
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+
+        assertThatThrownBy(() -> useCase.applyTransition(ID, transition)).isInstanceOf(IllegalStateException.class);
         verify(repository, times(1)).save(any());
     }
 }
