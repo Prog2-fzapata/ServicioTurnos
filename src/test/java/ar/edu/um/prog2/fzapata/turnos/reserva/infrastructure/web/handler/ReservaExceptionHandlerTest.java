@@ -19,6 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraAuthenticationException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraNotReachedException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraResponseException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.handler.ReservaExceptionHandlerTest.CatalogProbeController;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtConfiguration;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.ProblemDetailsSecurityHandler;
@@ -42,6 +46,26 @@ class ReservaExceptionHandlerTest {
         @GetMapping("/api/probe/catalog-down")
         String down() {
             throw new CatalogUnavailableException("Catálogo no está disponible (503)", null);
+        }
+
+        @GetMapping("/api/probe/catedra-down")
+        String catedraDown() {
+            throw new CatedraUnavailableException("La cátedra no respondió", null);
+        }
+
+        @GetMapping("/api/probe/catedra-not-reached")
+        String catedraNotReached() {
+            throw new CatedraNotReachedException("No se pudo conectar con la cátedra", null);
+        }
+
+        @GetMapping("/api/probe/catedra-auth")
+        String catedraAuth() {
+            throw new CatedraAuthenticationException("La cátedra rechazó el JWT técnico (401): revisar CATEDRA_JWT", null);
+        }
+
+        @GetMapping("/api/probe/catedra-unexpected")
+        String catedraUnexpected() {
+            throw new CatedraResponseException("La cátedra respondió 400 VALIDATION_ERROR", null);
         }
 
         @GetMapping("/api/probe/catalog-unexpected")
@@ -70,5 +94,35 @@ class ReservaExceptionHandlerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
                 .andExpect(jsonPath("$.detail", not(containsString("401"))));
+    }
+
+    @Test
+    void anUnavailableCatedraIsA503WithItsOwnCode() throws Exception {
+        mockMvc.perform(get("/api/probe/catedra-down").with(jwt()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CATEDRA_UNAVAILABLE"))
+                .andExpect(jsonPath("$.path").value("/api/probe/catedra-down"));
+    }
+
+    // Que nunca se haya llegado a la cátedra también es un 503: el cliente no distingue el motivo
+    @Test
+    void aCatedraThatWasNotReachedIsAlsoA503() throws Exception {
+        mockMvc.perform(get("/api/probe/catedra-not-reached").with(jwt()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("CATEDRA_UNAVAILABLE"));
+    }
+
+    // Un JWT técnico mal configurado o un desajuste con el contrato no es una caída: error interno y sin detalles
+    @Test
+    void aMisconfiguredTechnicalJwtOrAnUnexpectedAnswerIsAGenericInternalError() throws Exception {
+        mockMvc.perform(get("/api/probe/catedra-auth").with(jwt()))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.detail", not(containsString("CATEDRA_JWT"))));
+        mockMvc.perform(get("/api/probe/catedra-unexpected").with(jwt()))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.detail", not(containsString("VALIDATION_ERROR"))));
     }
 }

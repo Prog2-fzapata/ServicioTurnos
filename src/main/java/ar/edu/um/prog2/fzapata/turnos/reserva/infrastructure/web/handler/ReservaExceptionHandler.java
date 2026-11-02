@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,14 @@ public class ReservaExceptionHandler {
     public ResponseEntity<ProblemDetail> handleCatalogUnavailable(HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.SERVICE_UNAVAILABLE, "CATALOG_UNAVAILABLE",
                 "El servicio de catálogo no está disponible, intente nuevamente en unos minutos",
+                request.getRequestURI());
+    }
+
+    // Incluye CatedraNotReachedException. Qué hacer con un resultado desconocido lo decide cada caso de uso
+    @ExceptionHandler(CatedraUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleCatedraUnavailable(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.SERVICE_UNAVAILABLE, "CATEDRA_UNAVAILABLE",
+                "El servicio central de turnos no está disponible, intente nuevamente en unos minutos",
                 request.getRequestURI());
     }
 }

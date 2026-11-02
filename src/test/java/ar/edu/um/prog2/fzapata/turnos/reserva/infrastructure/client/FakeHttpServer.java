@@ -6,41 +6,47 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-// Servidor HTTP real y local que hace de catálogo: así los timeouts y las conexiones cortadas se prueban de verdad.
-// Cada pedido consume la siguiente respuesta del guion; cuando el guion se acaba, repite la última
-final class FakeCatalogServer implements AutoCloseable {
+// Servidor HTTP real y local que hace de otro servicio: así los timeouts y las conexiones cortadas se prueban de
+// verdad. Cada pedido consume la siguiente respuesta del guion; cuando el guion se acaba, repite la última
+final class FakeHttpServer implements AutoCloseable {
 
     interface Behavior {
         void handle(HttpExchange exchange) throws IOException, InterruptedException;
     }
 
+    // Lo que recibió el servidor: sirve para comprobar qué envía el cliente
+    record Request(String method, String rawPath, String rawQuery, String authorization, String contentType,
+            String body) {
+    }
+
     private final HttpServer server;
     private final Queue<Behavior> script = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger requests = new AtomicInteger();
-    private final List<String> authorizations = new CopyOnWriteArrayList<>();
-    private final List<String> paths = new CopyOnWriteArrayList<>();
-    private volatile Behavior last = exchange -> respond(exchange, 500, "");
+    private final List<Request> requests = new CopyOnWriteArrayList<>();
+    private volatile Behavior last = exchange -> respond(exchange, 500, "", Map.of());
 
-    FakeCatalogServer() throws IOException {
+    FakeHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.setExecutor(Executors.newCachedThreadPool());
         server.createContext("/", this::handle);
         server.start();
     }
 
-    static void respond(HttpExchange exchange, int status, String body) throws IOException {
+    static void respond(HttpExchange exchange, int status, String body, Map<String, String> headers)
+            throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().add("Content-Type", status == 200 ? "application/json"
+        exchange.getResponseHeaders().add("Content-Type", status < 300 ? "application/json"
                 : "application/problem+json");
+        headers.forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
         exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
         if (bytes.length > 0) {
             try (OutputStream out = exchange.getResponseBody()) {
@@ -51,7 +57,11 @@ final class FakeCatalogServer implements AutoCloseable {
     }
 
     static Behavior status(int status, String body) {
-        return exchange -> respond(exchange, status, body);
+        return exchange -> respond(exchange, status, body, Map.of());
+    }
+
+    static Behavior status(int status, String body, Map<String, String> headers) {
+        return exchange -> respond(exchange, status, body, headers);
     }
 
     // Cierra la conexión sin responder: el cliente ve un corte
@@ -62,14 +72,15 @@ final class FakeCatalogServer implements AutoCloseable {
     static Behavior slow(long millis) {
         return exchange -> {
             Thread.sleep(millis);
-            respond(exchange, 200, "{}");
+            respond(exchange, 200, "{}", Map.of());
         };
     }
 
     private void handle(HttpExchange exchange) throws IOException {
-        requests.incrementAndGet();
-        authorizations.add(exchange.getRequestHeaders().getFirst("Authorization"));
-        paths.add(exchange.getRequestURI().getPath());
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        requests.add(new Request(exchange.getRequestMethod(), exchange.getRequestURI().getRawPath(),
+                exchange.getRequestURI().getRawQuery(), exchange.getRequestHeaders().getFirst("Authorization"),
+                exchange.getRequestHeaders().getFirst("Content-Type"), body));
         Behavior behavior = script.poll();
         if (behavior == null) {
             behavior = last;
@@ -86,7 +97,7 @@ final class FakeCatalogServer implements AutoCloseable {
         }
     }
 
-    FakeCatalogServer thenRespond(Behavior... behaviors) {
+    FakeHttpServer thenRespond(Behavior... behaviors) {
         script.addAll(List.of(behaviors));
         return this;
     }
@@ -95,21 +106,29 @@ final class FakeCatalogServer implements AutoCloseable {
         return "http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort();
     }
 
-    int requests() {
-        return requests.get();
+    int requestCount() {
+        return requests.size();
+    }
+
+    List<Request> requests() {
+        return requests;
+    }
+
+    Request firstRequest() {
+        return requests.get(0);
     }
 
     List<String> authorizations() {
-        return authorizations;
+        return requests.stream().map(Request::authorization).toList();
     }
 
     List<String> paths() {
-        return paths;
+        return requests.stream().map(Request::rawPath).toList();
     }
 
     @Override
     public void close() {
         server.stop(0);
-        ((java.util.concurrent.ExecutorService) server.getExecutor()).shutdownNow();
+        ((ExecutorService) server.getExecutor()).shutdownNow();
     }
 }
