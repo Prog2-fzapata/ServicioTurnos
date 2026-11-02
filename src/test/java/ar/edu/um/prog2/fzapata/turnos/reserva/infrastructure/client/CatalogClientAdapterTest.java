@@ -34,8 +34,8 @@ class CatalogClientAdapterTest {
     private static final String USER_TOKEN = "jwt-del-usuario-que-no-debe-filtrarse";
     private static final String PROFESSIONAL_JSON = """
             {
-              "id": 15, "categoryId": 1, "categoryName": "Clinica medica", "firstName": "Ana", "lastName": "Gomez",
-              "enabled": true,
+              "id": 15, "categoryId": 1, "categoryName": "Clinica medica", "categoryEnabled": true, "firstName": "Ana",
+              "lastName": "Gomez", "enabled": true,
               "weeklySchedules": [
                 {"id": 101, "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "12:00:00",
                  "slotDurationMinutes": 30, "enabled": true},
@@ -87,6 +87,7 @@ class CatalogClientAdapterTest {
             assertThat(professional.getFirstName()).isEqualTo("Ana");
             assertThat(professional.getLastName()).isEqualTo("Gomez");
             assertThat(professional.isEnabled()).isTrue();
+            assertThat(professional.isCategoryEnabled()).isTrue();
             assertThat(professional.getWeeklySchedules()).hasSize(2);
             CatalogSchedule monday = professional.getWeeklySchedules().get(0);
             assertThat(monday.getId()).isEqualTo(101L);
@@ -105,8 +106,8 @@ class CatalogClientAdapterTest {
     @Test
     void ignoresTheFieldsThatTheContractDoesNotDefine() {
         server.thenRespond(status(200, """
-                {"id": 15, "categoryId": 1, "categoryName": "C", "firstName": "Ana", "lastName": "G",
-                 "enabled": true, "campoNuevo": {"x": 1}, "weeklySchedules": [
+                {"id": 15, "categoryId": 1, "categoryName": "C", "categoryEnabled": true, "firstName": "Ana",
+                 "lastName": "G", "enabled": true, "campoNuevo": {"x": 1}, "weeklySchedules": [
                  {"id": 1, "dayOfWeek": "FRIDAY", "startTime": "08:00:00", "endTime": "09:00:00",
                   "slotDurationMinutes": 15, "enabled": true, "otroCampo": 7}]}"""));
 
@@ -116,14 +117,29 @@ class CatalogClientAdapterTest {
     @Test
     void aProfessionalWithoutSchedulesHasAnEmptyList() {
         server.thenRespond(status(200, """
-                {"id": 15, "categoryId": 1, "categoryName": "C", "firstName": "Ana", "lastName": "G",
-                 "enabled": false, "weeklySchedules": []}"""));
+                {"id": 15, "categoryId": 1, "categoryName": "C", "categoryEnabled": false, "firstName": "Ana",
+                 "lastName": "G", "enabled": false, "weeklySchedules": []}"""));
 
         withAdapter(adapter -> {
             CatalogProfessional professional = adapter.findProfessional(15L).orElseThrow();
 
             assertThat(professional.isEnabled()).isFalse();
+            assertThat(professional.isCategoryEnabled()).isFalse();
             assertThat(professional.getWeeklySchedules()).isEmpty();
+        });
+    }
+
+    // Sin saber si la categoría está habilitada no se puede decidir si se ofrecen horarios: es un desajuste con catálogo
+    @Test
+    void aProfessionalWithoutCategoryEnabledIsAnUnexpectedAnswerAndIsNotRetried() {
+        server.thenRespond(status(200, """
+                {"id": 15, "categoryId": 1, "categoryName": "C", "firstName": "Ana", "lastName": "G",
+                 "enabled": true, "weeklySchedules": []}"""));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogResponseException.class)
+                    .hasMessageContaining("categoryEnabled");
+            assertThat(server.requestCount()).isEqualTo(1);
         });
     }
 

@@ -21,6 +21,8 @@ public class CatalogProfessionalResponse {
     private Long id;
     private Long categoryId;
     private String categoryName;
+    // Boolean y no boolean: si catálogo no lo informa, el mapper lo distingue de un false
+    private Boolean categoryEnabled;
     private String firstName;
     private String lastName;
     private boolean enabled;

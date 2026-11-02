@@ -29,7 +29,7 @@ Completar la clave de la base y el secreto del JWT en `.env` (el mismo valor que
 
 PostgreSQL y el servicio se publican solo en `127.0.0.1`.
 
-Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra (tienen valor por defecto; si la variable está definida en el entorno, esa gana):
+Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y de la disponibilidad (tienen valor por defecto; si la variable está definida en el entorno, esa gana):
 
 | Variable | Descripción | Por defecto |
 | --- | --- | --- |
@@ -41,6 +41,8 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra (
 | `CATEDRA_READ_TIMEOUT` | Espera máxima por la respuesta de la cátedra | `5s` |
 | `CATEDRA_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para las operaciones que se pueden repetir. `1` desactiva los reintentos. Mínimo 1 | `3` |
 | `CATEDRA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `200ms` |
+| `AVAILABILITY_ZONE` | Zona horaria de atención: en ella se decide qué horarios ya pasaron (la cátedra expresa las horas en hora local) | `America/Argentina/Mendoza` |
+| `AVAILABILITY_MAX_RANGE_DAYS` | Días máximos entre `from` y `to` de la disponibilidad, ambos incluidos. Mínimo 1 | `31` |
 
 ## Levantar con Docker
 
@@ -106,6 +108,44 @@ Los errores de la cátedra se traducen por `status` y `code`, nunca por el texto
 **Qué se reintenta y qué no.** Las lecturas (ocupaciones y listado), confirmar un hold y cancelar se pueden repetir sin riesgo: se reintentan hasta `CATEDRA_MAX_ATTEMPTS` intentos en total, con una espera que se duplica. **Crear un hold no se reintenta** si el pedido pudo haber llegado: la cátedra no tiene idempotencia ni permite recuperar los ids de un hold, así que repetir el POST tras un timeout podría chocar con nuestro propio hold sin poder reconocerlo. Solo se repite si la conexión ni siquiera se estableció (nada se envió). Cuando el resultado queda desconocido, el proceso se abandona y antes de crear otro hold se consultan las ocupaciones del profesional: si el horario aparece `HELD`, se espera hasta su `expiresAt` sin asumir que el hold es nuestro (el TTL es de 10 minutos desde la creación en la cátedra). Por eso, tras una respuesta perdida, el horario puede quedar bloqueado hasta unos 10 minutos, también para el mismo usuario.
 
 Un `409` de horario ocupado nunca se toma como «ese hold es mío»: se informa como horario no disponible.
+
+## Disponibilidad
+
+`GET /api/availability?professionalId=15&from=2026-10-12&to=2026-10-25` devuelve los horarios libres de un profesional: su agenda semanal (catálogo) menos lo que la cátedra informa como ocupado, ordenados por fecha y hora y sin los que ya empezaron.
+
+```bash
+curl "localhost:8082/api/availability?professionalId=15&from=2026-10-12&to=2026-10-25" \
+  -H "Authorization: Bearer <id_token>"
+```
+
+```json
+{
+  "professionalId": 15,
+  "from": "2026-10-12",
+  "to": "2026-10-25",
+  "slots": [
+    { "date": "2026-10-12", "startTime": "09:00:00", "endTime": "09:30:00" },
+    { "date": "2026-10-12", "startTime": "10:00:00", "endTime": "10:30:00" }
+  ]
+}
+```
+
+- **Cómo se arman los horarios.** Por cada día del rango y cada horario semanal habilitado de ese día de la semana, se parte de la hora de inicio y se avanza de a `slotDurationMinutes` mientras el horario termine en o antes del cierre (con turnos de 45 minutos entre las 9:00 y las 10:00 entra solo el de las 9:00). Si dos horarios se superponen no se repite el mismo inicio.
+- **Qué se resta.** Las ocupaciones de la cátedra, `CONFIRMED` y también `HELD` (un hold puede vencer, pero ofrecerlo terminaría en un `409` al reservar).
+- **Horarios pasados.** Se comparan con la hora actual en la zona de atención (`AVAILABILITY_ZONE`), porque la cátedra expresa las horas en hora local.
+- **Es una foto.** Entre la consulta y la reserva otro usuario puede tomar el horario: el veredicto real lo da el hold al reservar.
+- **Una lista vacía** (`"slots": []`) es una respuesta válida: no hay horarios libres en el rango.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `200` | Siempre que se pudo calcular, aunque no haya horarios |
+| `400` `INVALID_DATE_RANGE` | `to` es anterior a `from`, o el rango supera `AVAILABILITY_MAX_RANGE_DAYS` días (ambos extremos incluidos). No se llama a nadie |
+| `400` `BAD_REQUEST` | Falta un parámetro o no tiene el tipo esperado (`yyyy-MM-dd` para las fechas) |
+| `400` `PROFESSIONAL_DISABLED` | El profesional **o su categoría** están deshabilitados. No se consulta a la cátedra |
+| `404` `PROFESSIONAL_NOT_FOUND` | Catálogo no conoce al profesional |
+| `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde: nunca se devuelve una disponibilidad parcial |
+
+Primero se consulta a catálogo y, solo si el profesional se puede reservar, a la cátedra.
 
 ## Tests
 
