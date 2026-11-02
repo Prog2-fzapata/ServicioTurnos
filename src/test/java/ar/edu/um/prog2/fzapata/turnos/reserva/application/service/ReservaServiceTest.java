@@ -15,8 +15,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Availability;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUseCase;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +33,9 @@ class ReservaServiceTest {
 
     @Mock
     private GetAvailabilityUseCase getAvailabilityUseCase;
+
+    @Mock
+    private ApplyReservationTransitionUseCase applyReservationTransitionUseCase;
 
     @InjectMocks
     private ReservaService reservaService;
@@ -46,5 +55,24 @@ class ReservaServiceTest {
 
         assertThatThrownBy(() -> reservaService.getAvailability(QUERY))
                 .isInstanceOf(ProfessionalNotFoundException.class).hasMessageContaining("15");
+    }
+
+    @Test
+    void returnsTheResultOfTheTransition() {
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+        TransitionResult result = new TransitionResult(TransitionOutcome.APPLIED, ReservationStatus.HELD,
+                ReservationStatus.WAITING_PHONE, null);
+        when(applyReservationTransitionUseCase.applyTransition(7L, transition)).thenReturn(Optional.of(result));
+
+        assertThat(reservaService.applyTransition(7L, transition)).isSameAs(result);
+    }
+
+    @Test
+    void aTransitionOfAMissingProcessBecomesAProcessNotFound() {
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+        when(applyReservationTransitionUseCase.applyTransition(7L, transition)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.applyTransition(7L, transition))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
     }
 }

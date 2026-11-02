@@ -43,6 +43,7 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `CATEDRA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `200ms` |
 | `AVAILABILITY_ZONE` | Zona horaria de atención: en ella se decide qué horarios ya pasaron (la cátedra expresa las horas en hora local) | `America/Argentina/Mendoza` |
 | `AVAILABILITY_MAX_RANGE_DAYS` | Días máximos entre `from` y `to` de la disponibilidad, ambos incluidos. Mínimo 1 | `31` |
+| `RESERVATION_CONFLICT_MAX_ATTEMPTS` | Intentos en total, el primero incluido, cuando dos actualizaciones del mismo proceso de reserva chocan por la versión (bloqueo optimista). `1` desactiva el reintento. Mínimo 1 | `3` |
 
 ## Levantar con Docker
 
@@ -146,6 +147,20 @@ curl "localhost:8082/api/availability?professionalId=15&from=2026-10-12&to=2026-
 | `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde: nunca se devuelve una disponibilidad parcial |
 
 Primero se consulta a catálogo y, solo si el profesional se puede reservar, a la cátedra.
+
+## Máquina de estados de la reserva
+
+Cada reserva es un proceso local (`reservation_processes`) que avanza por estados mientras REST y Kafka le informan lo que pasa en la cátedra:
+
+```
+HOLD_REQUESTED → HELD → WAITING_PHONE → PHONE_QUEUED → PHONE_SUBMITTED → CONFIRMED → CANCELLED
+```
+
+Además, los estados intermedios pueden pasar a `EXPIRED` o `FAILED`, y la cátedra puede rechazar el teléfono (`PHONE_SUBMITTED → WAITING_PHONE`). El diagrama completo de transiciones, con sus reglas, está en [docs/maquina-de-estados.md](docs/maquina-de-estados.md).
+
+- **Estados finales** (`EXPIRED`, `FAILED`, `CANCELLED`): inmutables. Un evento tardío o duplicado no los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
+- **Todo cambio de estado pasa por un solo caso de uso.** Responde `APPLIED` (cambió), `ALREADY_IN_STATE` (ya estaba en ese estado: repetir un paso es inocuo) o `REJECTED` (el diagrama no lo permite: se ignora y se registra, sin error).
+- **Bloqueo optimista.** Si dos operaciones modifican el mismo proceso a la vez, la segunda relee el proceso y decide de nuevo con el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos. Es seguro porque los estados solo avanzan; si se agotan los intentos, la operación falla con un conflicto.
 
 ## Tests
 
