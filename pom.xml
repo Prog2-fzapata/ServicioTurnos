@@ -19,6 +19,9 @@
 		<sonar.projectKey>Prog2-fzapata_ServicioTurnos</sonar.projectKey>
 		<sonar.host.url>https://sonarcloud.io</sonar.host.url>
 		<sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+		<!-- La entity JPA repite los campos del modelo de dominio a propósito: la arquitectura hexagonal de la cátedra
+		     exige una clase separada aunque hoy tenga los mismos campos. No es duplicación a refactorizar -->
+		<sonar.cpd.exclusions>**/infrastructure/persistence/entity/**</sonar.cpd.exclusions>
 	</properties>
 	<dependencies>
 		<dependency>

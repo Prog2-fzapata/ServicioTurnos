@@ -9,8 +9,10 @@ class ReservationTransitionTest {
 
     @Test
     void theTargetIsRequired() {
-        assertThatThrownBy(() -> ReservationTransition.builder().holdId("hold-1").build())
-                .isInstanceOf(NullPointerException.class);
+        ReservationTransition.ReservationTransitionBuilder withoutTarget = ReservationTransition.builder()
+                .holdId("hold-1");
+
+        assertThatThrownBy(withoutTarget::build).isInstanceOf(NullPointerException.class);
     }
 
     @Test
