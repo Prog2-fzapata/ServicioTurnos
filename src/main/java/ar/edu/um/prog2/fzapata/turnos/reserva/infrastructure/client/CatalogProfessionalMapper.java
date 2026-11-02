@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogSchedule;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.dto.CatalogProfessionalResponse;
@@ -23,6 +24,14 @@ public class CatalogProfessionalMapper {
                 .build();
     }
 
+    // Sin este dato no se sabe si el profesional se puede reservar: se falla en lugar de suponer un valor
+    private boolean requireCategoryEnabled(CatalogProfessionalResponse response) {
+        if (response.getCategoryEnabled() == null) {
+            throw new CatalogResponseException("Catálogo no informó categoryEnabled", null);
+        }
+        return response.getCategoryEnabled();
+    }
+
     public CatalogProfessional toDomainModel(CatalogProfessionalResponse response) {
         if (response == null) return null;
         List<CatalogScheduleResponse> schedules = response.getWeeklySchedules() == null ? List.of()
@@ -31,6 +40,7 @@ public class CatalogProfessionalMapper {
                 .id(response.getId())
                 .categoryId(response.getCategoryId())
                 .categoryName(response.getCategoryName())
+                .categoryEnabled(requireCategoryEnabled(response))
                 .firstName(response.getFirstName())
                 .lastName(response.getLastName())
                 .enabled(response.isEnabled())

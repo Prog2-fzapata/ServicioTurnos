@@ -38,6 +38,8 @@ services:
       CATEDRA_READ_TIMEOUT:
       CATEDRA_MAX_ATTEMPTS:
       CATEDRA_INITIAL_BACKOFF:
+      AVAILABILITY_ZONE:
+      AVAILABILITY_MAX_RANGE_DAYS:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:

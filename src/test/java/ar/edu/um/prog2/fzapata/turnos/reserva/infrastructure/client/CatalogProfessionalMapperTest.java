@@ -1,6 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
@@ -8,6 +9,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.dto.CatalogProfessionalResponse;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.dto.CatalogScheduleResponse;
@@ -19,7 +21,7 @@ class CatalogProfessionalMapperTest {
     @Test
     void mapsEveryFieldOfTheProfessionalAndOfItsSchedules() {
         CatalogProfessionalResponse response = CatalogProfessionalResponse.builder().id(15L).categoryId(2L)
-                .categoryName("Pediatria").firstName("Ana").lastName("Gomez").enabled(false)
+                .categoryName("Pediatria").categoryEnabled(false).firstName("Ana").lastName("Gomez").enabled(false)
                 .weeklySchedules(List.of(CatalogScheduleResponse.builder().id(7L).dayOfWeek(DayOfWeek.THURSDAY)
                         .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(13, 30)).slotDurationMinutes(45)
                         .enabled(false).build()))
@@ -30,6 +32,7 @@ class CatalogProfessionalMapperTest {
         assertThat(professional.getId()).isEqualTo(15L);
         assertThat(professional.getCategoryId()).isEqualTo(2L);
         assertThat(professional.getCategoryName()).isEqualTo("Pediatria");
+        assertThat(professional.isCategoryEnabled()).isFalse();
         assertThat(professional.getFirstName()).isEqualTo("Ana");
         assertThat(professional.getLastName()).isEqualTo("Gomez");
         assertThat(professional.isEnabled()).isFalse();
@@ -45,9 +48,17 @@ class CatalogProfessionalMapperTest {
 
     @Test
     void aMissingListOfSchedulesIsAnEmptyList() {
-        CatalogProfessionalResponse response = CatalogProfessionalResponse.builder().id(15L).build();
+        CatalogProfessionalResponse response = CatalogProfessionalResponse.builder().id(15L).categoryEnabled(true).build();
 
         assertThat(mapper.toDomainModel(response).getWeeklySchedules()).isEmpty();
+    }
+
+    @Test
+    void aMissingCategoryEnabledIsAnUnexpectedAnswer() {
+        CatalogProfessionalResponse response = CatalogProfessionalResponse.builder().id(15L).build();
+
+        assertThatThrownBy(() -> mapper.toDomainModel(response)).isInstanceOf(CatalogResponseException.class)
+                .hasMessageContaining("categoryEnabled");
     }
 
     @Test

@@ -18,14 +18,14 @@ import com.sun.net.httpserver.HttpServer;
 
 // Servidor HTTP real y local que hace de otro servicio: así los timeouts y las conexiones cortadas se prueban de
 // verdad. Cada pedido consume la siguiente respuesta del guion; cuando el guion se acaba, repite la última
-final class FakeHttpServer implements AutoCloseable {
+public final class FakeHttpServer implements AutoCloseable {
 
-    interface Behavior {
+    public interface Behavior {
         void handle(HttpExchange exchange) throws IOException, InterruptedException;
     }
 
     // Lo que recibió el servidor: sirve para comprobar qué envía el cliente
-    record Request(String method, String rawPath, String rawQuery, String authorization, String contentType,
+    public record Request(String method, String rawPath, String rawQuery, String authorization, String contentType,
             String body) {
     }
 
@@ -34,14 +34,14 @@ final class FakeHttpServer implements AutoCloseable {
     private final List<Request> requests = new CopyOnWriteArrayList<>();
     private volatile Behavior last = exchange -> respond(exchange, 500, "", Map.of());
 
-    FakeHttpServer() throws IOException {
+    public FakeHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.setExecutor(Executors.newCachedThreadPool());
         server.createContext("/", this::handle);
         server.start();
     }
 
-    static void respond(HttpExchange exchange, int status, String body, Map<String, String> headers)
+    public static void respond(HttpExchange exchange, int status, String body, Map<String, String> headers)
             throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", status < 300 ? "application/json"
@@ -56,20 +56,20 @@ final class FakeHttpServer implements AutoCloseable {
         exchange.close();
     }
 
-    static Behavior status(int status, String body) {
+    public static Behavior status(int status, String body) {
         return exchange -> respond(exchange, status, body, Map.of());
     }
 
-    static Behavior status(int status, String body, Map<String, String> headers) {
+    public static Behavior status(int status, String body, Map<String, String> headers) {
         return exchange -> respond(exchange, status, body, headers);
     }
 
     // Cierra la conexión sin responder: el cliente ve un corte
-    static Behavior cutConnection() {
+    public static Behavior cutConnection() {
         return HttpExchange::close;
     }
 
-    static Behavior slow(long millis) {
+    public static Behavior slow(long millis) {
         return exchange -> {
             Thread.sleep(millis);
             respond(exchange, 200, "{}", Map.of());
@@ -97,32 +97,39 @@ final class FakeHttpServer implements AutoCloseable {
         }
     }
 
-    FakeHttpServer thenRespond(Behavior... behaviors) {
+    public FakeHttpServer thenRespond(Behavior... behaviors) {
         script.addAll(List.of(behaviors));
         return this;
     }
 
-    String baseUrl() {
+    // Deja el servidor como recién creado: sirve para compartirlo entre tests que comparten un contexto de Spring
+    public void reset() {
+        script.clear();
+        requests.clear();
+        last = exchange -> respond(exchange, 500, "", Map.of());
+    }
+
+    public String baseUrl() {
         return "http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort();
     }
 
-    int requestCount() {
+    public int requestCount() {
         return requests.size();
     }
 
-    List<Request> requests() {
+    public List<Request> requests() {
         return requests;
     }
 
-    Request firstRequest() {
+    public Request firstRequest() {
         return requests.get(0);
     }
 
-    List<String> authorizations() {
+    public List<String> authorizations() {
         return requests.stream().map(Request::authorization).toList();
     }
 
-    List<String> paths() {
+    public List<String> paths() {
         return requests.stream().map(Request::rawPath).toList();
     }
 

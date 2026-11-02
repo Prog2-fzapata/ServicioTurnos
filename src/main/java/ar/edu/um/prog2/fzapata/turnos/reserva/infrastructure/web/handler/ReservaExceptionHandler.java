@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidDateRangeException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +38,27 @@ public class ReservaExceptionHandler {
     public ResponseEntity<ProblemDetail> handleCatedraUnavailable(HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.SERVICE_UNAVAILABLE, "CATEDRA_UNAVAILABLE",
                 "El servicio central de turnos no está disponible, intente nuevamente en unos minutos",
+                request.getRequestURI());
+    }
+
+    @ExceptionHandler(ProfessionalNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProfessionalNotFound(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.NOT_FOUND, "PROFESSIONAL_NOT_FOUND",
+                "El profesional no existe", request.getRequestURI());
+    }
+
+    // También cuando solo está deshabilitada su categoría: el cliente no necesita distinguirlo
+    @ExceptionHandler(ProfessionalDisabledException.class)
+    public ResponseEntity<ProblemDetail> handleProfessionalDisabled(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.BAD_REQUEST, "PROFESSIONAL_DISABLED",
+                "El profesional no está habilitado", request.getRequestURI());
+    }
+
+    // El mensaje lo escribe el propio servicio, sin datos del pedido: es seguro mostrarlo
+    @ExceptionHandler(InvalidDateRangeException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidDateRange(InvalidDateRangeException ex,
+            HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", ex.getMessage(),
                 request.getRequestURI());
     }
 }

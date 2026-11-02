@@ -20,6 +20,7 @@ public class CatalogProfessional {
     private Long id;
     private Long categoryId;
     private String categoryName;
+    private boolean categoryEnabled;
     private String firstName;
     private String lastName;
     private boolean enabled;
