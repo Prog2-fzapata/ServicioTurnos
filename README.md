@@ -26,6 +26,8 @@ Completar la clave de la base y el secreto del JWT en `.env` (el mismo valor que
 | `CATEDRA_KAFKA_BOOTSTRAP_SERVERS` | Servidor de Kafka de la cátedra. Es la IP de ZeroTier, no el host interno que informa la API. Obligatoria: si falta, el servicio no arranca. Es el mismo valor que en catálogo | |
 | `CATEDRA_KAFKA_GROUP_ID` | Consumer group de la cuenta (`kafkaConsumerGroupId` de `integration`). Obligatoria. Es el mismo valor que en catálogo | |
 | `CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC` | Topic con los eventos de reserva de la cátedra (`kafkaAppointmentActionsTopic`). Obligatoria | |
+| `CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC` | Topic al que se publica el teléfono (`kafkaAppointmentPhoneTopic`). Obligatoria | |
+| `CATEDRA_GROUP_ID` | `groupId` de la cuenta (`integration.groupId`): el mensaje del teléfono lo lleva como campo obligatorio. Obligatoria | |
 | `CATALOGO_BASE_URL` | URL del servicio de catálogo, sin `/` final. Obligatoria: si falta, el servicio no arranca. Desde el contenedor se llega por el host | `http://host.docker.internal:8081` |
 | `POSTGRES_PORT` | Puerto del host donde se publica PostgreSQL | `5433` |
 | `TURNOS_PORT` | Puerto del host donde se publica el servicio | `8082` |
@@ -50,6 +52,9 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `RESERVATION_HOLD_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para conseguir un hold confirmado: cada intento es un hold más su confirmación. Se repite si se perdió la respuesta del hold y el horario figura libre, o si el hold venció antes de confirmarse. `1` desactiva el reintento. Mínimo 1 | `2` |
 | `CATEDRA_KAFKA_MAX_RETRIES` | Reintentos después del primer intento cuando falla el procesamiento de un evento de Kafka. `0` los desactiva | `3` |
 | `CATEDRA_KAFKA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `1s` |
+| `OUTBOX_RELAY_INTERVAL` | Cada cuánto mira el relay del outbox los mensajes pendientes de publicar (el teléfono) | `1s` |
+| `OUTBOX_RELAY_BATCH_SIZE` | Mensajes que toma el relay por vuelta. Mínimo 1 | `50` |
+| `OUTBOX_PUBLISH_TIMEOUT` | Espera máxima por la confirmación de Kafka de un mensaje; si se agota queda pendiente y se reintenta | `10s` |
 
 ## Levantar con Docker
 
@@ -219,6 +224,30 @@ Además, los estados intermedios pueden pasar a `EXPIRED` o `FAILED`, y la cáte
 - **Estados finales** (`EXPIRED`, `FAILED`, `CANCELLED`): inmutables. Un evento tardío o duplicado no los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
 - **Todo cambio de estado pasa por un solo caso de uso.** Responde `APPLIED` (cambió), `DATA_COMPLETED` (ya estaba en ese estado pero le faltaban datos, por ejemplo el `requestEventId` del pedido de teléfono: se completan sin pisar los que tiene), `ALREADY_IN_STATE` (ya estaba en ese estado y no hay nada que completar: repetir un paso es inocuo) o `REJECTED` (el diagrama no lo permite: se ignora y se registra, sin error). Un proceso final nunca se modifica.
 - **Bloqueo optimista.** Si dos operaciones modifican el mismo proceso a la vez, la segunda relee el proceso y decide de nuevo con el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos. Es seguro porque los estados solo avanzan; si se agotan los intentos, la operación falla con un conflicto.
+
+## Enviar el teléfono
+
+La cátedra pide un teléfono para confirmar la reserva. Cuando lo pide, la reserva muestra `canSubmitPhone: true` y la app puede habilitar el formulario. El pedido llega por Kafka un instante después de `POST /api/reservations`, por eso hay que esperar esa señal.
+
+```bash
+curl -X POST localhost:8082/api/reservations/101/phone -H "Authorization: Bearer <id_token>" \
+  -H 'Content-Type: application/json' -d '{"phoneNumber": "+54 9 261 615-9550"}'
+```
+
+Responde `202` con la reserva en `PHONE_QUEUED`. El resultado final (confirmada o rechazada) llega después por Kafka y lo aplica el consumer.
+
+- **Formato:** se quitan espacios, guiones, paréntesis y puntos, y queda un `+` opcional y de 7 a 15 dígitos (la regla de la cátedra). Se aceptan `+5492616159550`, `+542616159550`, `2616159550` o `(0261) 615-9550`. El número **se guarda y se envía tal cual queda**, sin completar el código de país ni quitar el `0` o el `15`: `+549...` y `+54...` son números distintos.
+- **Outbox:** `PHONE_QUEUED` y el mensaje a publicar se guardan en **una sola transacción** (`outbox_events`), así que o quedan los dos o ninguno. Un **relay** interno, una tarea que corre cada `OUTBOX_RELAY_INTERVAL`, publica los pendientes del más viejo al más nuevo, espera la confirmación de Kafka (`acks=all`, productor idempotente) y recién entonces marca el mensaje como enviado y pasa la reserva a `PHONE_SUBMITTED`. `PHONE_SUBMITTED` significa «el broker lo recibió», no que la cátedra lo aceptó.
+- **Fallos:** si Kafka no confirma, el mensaje queda pendiente con un intento más y se reintenta en la vuelta siguiente. Si el relay se cae entre la confirmación y el marcado, el mensaje se reenvía con el **mismo `eventId` y contenido** y la cátedra descarta el duplicado. Si la cátedra contesta antes de que el relay anote la confirmación (la reserva ya está `CONFIRMED`), ese paso se ignora y nada retrocede. Si la reserva ya terminó cuando le toca el turno al mensaje, igual se publica: la cátedra decide qué hacer.
+- **Privacidad:** el teléfono nunca se escribe en los logs.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `202` | El teléfono quedó en cola |
+| `400` `VALIDATION_ERROR` | Falta, está vacío, tiene más de 40 caracteres o no cumple el formato |
+| `404` `RESERVATION_NOT_FOUND` | No existe o es de otro usuario |
+| `409` `INVALID_RESERVATION_STATE` | La reserva no espera el teléfono, la cátedra todavía no lo pidió, o ya se envió uno |
+| `409` `RESERVATION_EXPIRED` | Pasó el vencimiento de la reserva |
 
 ## Eventos de la cátedra (Kafka)
 
