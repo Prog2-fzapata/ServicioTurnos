@@ -23,6 +23,8 @@ public class TransitionOutcomeLogger {
         switch (transition.outcome()) {
             case APPLIED -> log.info("{}: el proceso {} pasó de {} a {}", origin, processId, transition.from(),
                     transition.target());
+            case DATA_COMPLETED -> log.info("{}: el proceso {} ya estaba en {}, se completaron datos que faltaban",
+                    origin, processId, transition.target());
             case ALREADY_IN_STATE -> log.info("{}: el proceso {} ya estaba en {}, sin cambios", origin, processId,
                     transition.target());
             case REJECTED -> log.warn("{}: se ignora el paso de {} a {} del proceso {}: el diagrama no lo permite",

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -188,13 +189,142 @@ class ApplyReservationTransitionUseCaseImplTest {
         ReservationProcess existing = process(ReservationStatus.WAITING_PHONE);
         when(repository.findById(ID)).thenReturn(Optional.of(existing));
 
-        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.builder()
-                .target(ReservationStatus.WAITING_PHONE).failureReason("no debería copiarse").build()).orElseThrow();
+        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE))
+                .orElseThrow();
 
         assertThat(result.outcome()).isEqualTo(TransitionOutcome.ALREADY_IN_STATE);
         assertThat(result.from()).isEqualTo(ReservationStatus.WAITING_PHONE);
-        assertThat(result.process().getFailureReason()).isNull();
         assertThat(result.process().getUpdatedAt()).isEqualTo(BEFORE);
+        verify(repository, never()).save(any());
+    }
+
+    // El pedido de teléfono llega cuando el proceso ya está en WAITING_PHONE: el requestEventId no puede perderse
+    @Test
+    void repeatingTheCurrentStatusCompletesTheDataTheProcessIsMissing() {
+        ReservationProcess existing = process(ReservationStatus.WAITING_PHONE);
+        when(repository.findById(ID)).thenReturn(Optional.of(existing));
+        saveReturnsWhatItReceives();
+
+        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.builder()
+                .target(ReservationStatus.WAITING_PHONE).requestEventId("request-event-8a31").build()).orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.DATA_COMPLETED);
+        assertThat(result.from()).isEqualTo(ReservationStatus.WAITING_PHONE);
+        assertThat(result.target()).isEqualTo(ReservationStatus.WAITING_PHONE);
+        ReservationProcess saved = savedProcess();
+        assertThat(saved.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
+        assertThat(saved.getRequestEventId()).isEqualTo("request-event-8a31");
+        assertThat(saved.getUpdatedAt()).isEqualTo(NOW);
+        assertThat(saved.getCancelledAt()).isNull();
+    }
+
+    @Test
+    void repeatingTheCurrentStatusNeverOverwritesWhatTheProcessAlreadyHas() {
+        ReservationProcess existing = process(ReservationStatus.WAITING_PHONE);
+        existing.setRequestEventId("request-original");
+        existing.setExpiresAt(BEFORE);
+        when(repository.findById(ID)).thenReturn(Optional.of(existing));
+
+        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.builder()
+                .target(ReservationStatus.WAITING_PHONE).requestEventId("request-otro").expiresAt(NOW).build())
+                .orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.ALREADY_IN_STATE);
+        assertThat(result.process().getRequestEventId()).isEqualTo("request-original");
+        assertThat(result.process().getExpiresAt()).isEqualTo(BEFORE);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void repeatingTheCurrentStatusCompletesOnlyTheMissingFields() {
+        ReservationProcess existing = process(ReservationStatus.WAITING_PHONE);
+        existing.setExpiresAt(BEFORE);
+        when(repository.findById(ID)).thenReturn(Optional.of(existing));
+        saveReturnsWhatItReceives();
+
+        useCase().applyTransition(ID, ReservationTransition.builder().target(ReservationStatus.WAITING_PHONE)
+                .requestEventId("request-event-8a31").expiresAt(NOW).build());
+
+        ReservationProcess saved = savedProcess();
+        assertThat(saved.getRequestEventId()).isEqualTo("request-event-8a31");
+        assertThat(saved.getExpiresAt()).isEqualTo(BEFORE);
+    }
+
+    // Un proceso final es inmutable: ni siquiera se le completan datos
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"})
+    void repeatingAFinalStatusNeverCompletesData(ReservationStatus finalStatus) {
+        ReservationProcess existing = process(finalStatus);
+        when(repository.findById(ID)).thenReturn(Optional.of(existing));
+
+        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.builder().target(finalStatus)
+                .failureReason("motivo").cancellationReason("motivo").reservationId(5L).build()).orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.ALREADY_IN_STATE);
+        assertThat(result.process().getFailureReason()).isNull();
+        assertThat(result.process().getCancellationReason()).isNull();
+        assertThat(result.process().getReservationId()).isNull();
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void completingDataAfterAConflictIsRetriedToo() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.WAITING_PHONE)),
+                Optional.of(process(ReservationStatus.WAITING_PHONE)));
+        when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TransitionResult result = useCase().applyTransition(ID, ReservationTransition.builder()
+                .target(ReservationStatus.WAITING_PHONE).requestEventId("request-event-8a31").build()).orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.DATA_COMPLETED);
+        verify(repository, times(2)).save(any());
+    }
+
+    // ---------- Un solo intento (dentro de una transacción ya abierta)
+
+    @Test
+    void applyingOnceAppliesTheStepLikeTheNormalWay() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.PHONE_SUBMITTED)));
+        saveReturnsWhatItReceives();
+
+        TransitionResult result = useCase().applyTransitionOnce(ID, ReservationTransition.builder()
+                .target(ReservationStatus.CONFIRMED).reservationId(8251L).build()).orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.APPLIED);
+        assertThat(savedProcess().getReservationId()).isEqualTo(8251L);
+    }
+
+    @Test
+    void applyingOnceNeverRetriesAConflict() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.HELD)));
+        when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null));
+        ApplyReservationTransitionUseCaseImpl useCase = useCase(5);
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+
+        assertThatThrownBy(() -> useCase.applyTransitionOnce(ID, transition))
+                .isInstanceOf(ReservationConflictException.class);
+
+        verify(repository, times(1)).findById(ID);
+        verify(repository, times(1)).save(any());
+    }
+
+    @Test
+    void applyingOnceToAMissingProcessIsEmpty() {
+        when(repository.findById(ID)).thenReturn(Optional.empty());
+
+        assertThat(useCase().applyTransitionOnce(ID, ReservationTransition.to(ReservationStatus.CONFIRMED))).isEmpty();
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void applyingOnceAStepTheDiagramDoesNotAllowIsRejected() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.EXPIRED)));
+
+        TransitionResult result = useCase().applyTransitionOnce(ID, ReservationTransition.to(ReservationStatus.CONFIRMED))
+                .orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(TransitionOutcome.REJECTED);
         verify(repository, never()).save(any());
     }
 

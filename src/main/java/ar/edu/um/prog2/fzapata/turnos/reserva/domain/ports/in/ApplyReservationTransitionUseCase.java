@@ -12,4 +12,9 @@ public interface ApplyReservationTransitionUseCase {
     // ReservationConflictException. No es válido llamarlo dentro de una transacción ya abierta: el reintento necesita
     // una transacción nueva por intento
     Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition);
+
+    // Un solo intento, sin releer ni repetir: es el que corresponde dentro de una transacción ya abierta (el
+    // consumidor de eventos), donde repetir no sirve. Si la versión cambió lanza ReservationConflictException y
+    // quien tiene la transacción decide qué hacer. Mismo resultado que applyTransition
+    Optional<TransitionResult> applyTransitionOnce(Long processId, ReservationTransition transition);
 }

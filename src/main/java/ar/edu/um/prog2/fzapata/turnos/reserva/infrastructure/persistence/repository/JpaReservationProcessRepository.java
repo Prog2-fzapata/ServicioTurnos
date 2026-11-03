@@ -18,6 +18,8 @@ public interface JpaReservationProcessRepository extends JpaRepository<Reservati
 
     Optional<ReservationProcessEntity> findByIdAndUserId(Long id, String userId);
 
+    Optional<ReservationProcessEntity> findByReservationProcessId(String reservationProcessId);
+
     @Query("""
             select r from ReservationProcessEntity r
             where r.userId = :userId
