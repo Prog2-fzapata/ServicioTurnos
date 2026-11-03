@@ -61,6 +61,17 @@ class TransitionOutcomeLoggerTest {
     }
 
     @Test
+    void completedDataIsInfoAndSaysTheStatusDidNotChange() {
+        transitionOutcomeLogger.log("Evento AdditionalInformationRequested", 7L, Optional.of(result(
+                TransitionOutcome.DATA_COMPLETED, ReservationStatus.WAITING_PHONE, ReservationStatus.WAITING_PHONE)));
+
+        ILoggingEvent event = onlyEvent();
+        assertThat(event.getLevel()).isEqualTo(Level.INFO);
+        assertThat(event.getFormattedMessage()).isEqualTo("Evento AdditionalInformationRequested: el proceso 7 ya "
+                + "estaba en WAITING_PHONE, se completaron datos que faltaban");
+    }
+
+    @Test
     void aRepeatedStepIsInfoAndSaysNothingChanged() {
         transitionOutcomeLogger.log("Cancelación", 7L, Optional.of(
                 result(TransitionOutcome.ALREADY_IN_STATE, ReservationStatus.CANCELLED, ReservationStatus.CANCELLED)));

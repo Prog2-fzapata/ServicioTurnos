@@ -40,7 +40,8 @@ stateDiagram-v2
 - **Estados finales:** `EXPIRED`, `FAILED` y `CANCELLED`. Son inmutables: ni un evento tardío ni uno duplicado los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
 - **Un solo lugar cambia el estado.** Todo paso pasa por un único caso de uso (`ApplyReservationTransitionUseCase`), que responde:
   - `APPLIED`: el estado cambió.
-  - `ALREADY_IN_STATE`: el proceso ya estaba en el estado pedido; no cambia nada. Se mira antes que la tabla, y hace inocuo repetir un paso (un evento duplicado, una cancelación repetida).
+  - `DATA_COMPLETED`: el proceso ya estaba en el estado pedido pero le faltaban datos de los que trae el paso (por ejemplo, el `requestEventId` del pedido de teléfono, que llega cuando el proceso ya está en `WAITING_PHONE`). Se completan sin pisar los que ya tiene.
+  - `ALREADY_IN_STATE`: el proceso ya estaba en el estado pedido y no hay nada que completar. Se mira antes que la tabla, y hace inocuo repetir un paso (un evento duplicado, una cancelación repetida). En un estado final nunca se completa nada.
   - `REJECTED`: el diagrama no permite ese paso desde el estado actual. Se ignora y se registra; no es un error ni retrocede nada.
 - **Gana el estado más avanzado.** La cátedra puede contestar antes de que el relay anote que el teléfono se envió: por eso desde `PHONE_QUEUED` también se aceptan `CONFIRMED` y `WAITING_PHONE`. El relay, en cambio, solo pasa a `PHONE_SUBMITTED` desde `PHONE_QUEUED`; si el proceso ya avanzó, ese paso es `REJECTED`.
 - **Bloqueo optimista.** Cada proceso lleva una `version`. Si dos operaciones lo modifican a la vez, la segunda recibe un conflicto, relee el proceso y decide de nuevo sobre el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos (3 por defecto). Agotados, la operación falla con un conflicto. El reintento no es válido dentro de una transacción ya abierta.

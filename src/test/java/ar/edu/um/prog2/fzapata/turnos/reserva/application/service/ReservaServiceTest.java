@@ -2,6 +2,8 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -13,12 +15,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationConflictException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Availability;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraEvent;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ConflictRetryPolicy;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventOutcome;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -26,8 +36,12 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.CancelReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ProcessCatedraEventUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
 
 @ExtendWith(MockitoExtension.class)
 class ReservaServiceTest {
@@ -43,6 +57,21 @@ class ReservaServiceTest {
 
     @Mock
     private StartReservationUseCase startReservationUseCase;
+
+    @Mock
+    private ListReservationsUseCase listReservationsUseCase;
+
+    @Mock
+    private GetReservationUseCase getReservationUseCase;
+
+    @Mock
+    private CancelReservationUseCase cancelReservationUseCase;
+
+    @Mock
+    private ProcessCatedraEventUseCase processCatedraEventUseCase;
+
+    @Spy
+    private ConflictRetryPolicy conflictRetryPolicy = new ConflictRetryPolicy(3);
 
     @InjectMocks
     private ReservaService reservaService;
@@ -102,5 +131,85 @@ class ReservaServiceTest {
 
         assertThatThrownBy(() -> reservaService.startReservation(request))
                 .isInstanceOf(ProfessionalNotFoundException.class).hasMessageContaining("99");
+    }
+
+    @Test
+    void returnsThePageOfReservationsOfTheUseCase() {
+        PageQuery page = new PageQuery(0, 20);
+        PagedResult<ReservationProcess> result = new PagedResult<>(List.of(), 0, page);
+        when(listReservationsUseCase.listReservations("42", ReservationStatus.CONFIRMED, page)).thenReturn(result);
+
+        assertThat(reservaService.listReservations("42", ReservationStatus.CONFIRMED, page)).isSameAs(result);
+    }
+
+    @Test
+    void returnsTheReservationOfTheUser() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).build();
+        when(getReservationUseCase.getReservation(7L, "42")).thenReturn(Optional.of(process));
+
+        assertThat(reservaService.getReservation(7L, "42")).isSameAs(process);
+    }
+
+    @Test
+    void aMissingOrForeignReservationBecomesAProcessNotFound() {
+        when(getReservationUseCase.getReservation(7L, "42")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.getReservation(7L, "42"))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
+    }
+
+    @Test
+    void returnsTheReservationThatWasCancelled() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).status(ReservationStatus.CANCELLED).build();
+        when(cancelReservationUseCase.cancelReservation(7L, "42", "motivo")).thenReturn(Optional.of(process));
+
+        assertThat(reservaService.cancelReservation(7L, "42", "motivo")).isSameAs(process);
+    }
+
+    @Test
+    void cancellingAMissingOrForeignReservationBecomesAProcessNotFound() {
+        when(cancelReservationUseCase.cancelReservation(7L, "42", null)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.cancelReservation(7L, "42", null))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
+    }
+
+    private static final CatedraEvent EVENT = new CatedraEvent("evento-1", "AppointmentConfirmed", "process-1", 8251L,
+            null, null);
+
+    @Test
+    void returnsTheResultOfProcessingTheEvent() {
+        EventResult result = EventResult.without(EventOutcome.DUPLICATE);
+        when(processCatedraEventUseCase.processEvent(EVENT)).thenReturn(result);
+
+        assertThat(reservaService.processEvent(EVENT)).isSameAs(result);
+    }
+
+    // El reintento vive acá, fuera de la transacción del caso de uso: cada intento es una transacción nueva
+    @Test
+    void aVersionConflictRepeatsTheWholeEvent() {
+        EventResult result = EventResult.without(EventOutcome.UNKNOWN_PROCESS);
+        when(processCatedraEventUseCase.processEvent(EVENT)).thenThrow(new ReservationConflictException(7L, null))
+                .thenThrow(new ReservationConflictException(7L, null)).thenReturn(result);
+
+        assertThat(reservaService.processEvent(EVENT)).isSameAs(result);
+        verify(processCatedraEventUseCase, times(3)).processEvent(EVENT);
+    }
+
+    @Test
+    void givesUpAfterExactlyTheConfiguredAttempts() {
+        ReservationConflictException conflict = new ReservationConflictException(7L, null);
+        when(processCatedraEventUseCase.processEvent(EVENT)).thenThrow(conflict);
+
+        assertThatThrownBy(() -> reservaService.processEvent(EVENT)).isSameAs(conflict);
+        verify(processCatedraEventUseCase, times(3)).processEvent(EVENT);
+    }
+
+    @Test
+    void anyOtherFailureIsNotRetried() {
+        when(processCatedraEventUseCase.processEvent(EVENT)).thenThrow(new IllegalStateException("la base se cayó"));
+
+        assertThatThrownBy(() -> reservaService.processEvent(EVENT)).isInstanceOf(IllegalStateException.class);
+        verify(processCatedraEventUseCase, times(1)).processEvent(EVENT);
     }
 }

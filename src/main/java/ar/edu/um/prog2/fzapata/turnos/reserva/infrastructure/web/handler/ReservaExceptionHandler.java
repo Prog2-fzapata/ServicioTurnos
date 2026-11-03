@@ -16,6 +16,8 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameR
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationNotCancellableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import jakarta.servlet.http.HttpServletRequest;
@@ -89,5 +91,18 @@ public class ReservaExceptionHandler {
     public ResponseEntity<ProblemDetail> handleReservationExpired(HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_EXPIRED",
                 "El bloqueo del horario venció antes de confirmarse, intente nuevamente", request.getRequestURI());
+    }
+
+    // También cuando la reserva es de otro usuario: no se revela que existe
+    @ExceptionHandler(ReservationProcessNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleReservationNotFound(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.NOT_FOUND, "RESERVATION_NOT_FOUND",
+                "La reserva no existe", request.getRequestURI());
+    }
+
+    @ExceptionHandler(ReservationNotCancellableException.class)
+    public ResponseEntity<ProblemDetail> handleReservationNotCancellable(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_NOT_CANCELLABLE",
+                "La reserva no se puede cancelar en su estado actual", request.getRequestURI());
     }
 }

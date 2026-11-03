@@ -105,11 +105,13 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
                 .patientLastName(patient.lastName()).createdAt(now).updatedAt(now).build();
     }
 
-    // Un paso que acá debe aplicarse siempre: si no se aplica, el proceso no está donde este caso de uso cree
+    // Un paso que acá debe aplicarse siempre: si el diagrama lo rechaza, el proceso no está donde este caso de uso
+    // cree. Que ya estuviera en el estado pedido es posible: la cátedra publica el pedido de teléfono justo después de
+    // confirmar y su evento puede procesarse antes de que este paso llegue
     private ReservationProcess transition(Long processId, ReservationTransition transition) {
         TransitionResult result = applyReservationTransition.applyTransition(processId, transition)
                 .orElseThrow(() -> new ReservationProcessNotFoundException(processId));
-        if (result.outcome() != TransitionOutcome.APPLIED) {
+        if (result.outcome() == TransitionOutcome.REJECTED) {
             throw new IllegalStateException("El proceso " + processId + " no pudo pasar de " + result.from() + " a "
                     + transition.target());
         }
