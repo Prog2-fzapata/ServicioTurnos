@@ -31,6 +31,8 @@ services:
       CATEDRA_KAFKA_BOOTSTRAP_SERVERS: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS}
       CATEDRA_KAFKA_GROUP_ID: ${CATEDRA_KAFKA_GROUP_ID}
       CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC: ${CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC}
+      CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC}
+      CATEDRA_GROUP_ID: ${CATEDRA_GROUP_ID}
       # Parámetros de ajuste opcionales: el valor por defecto está en application.properties. Sin valor aquí, Compose
       # los pasa solo si están definidos en el shell o en el .env, y en ese caso ganan
       CATALOGO_CONNECT_TIMEOUT:
@@ -48,6 +50,9 @@ services:
       RESERVATION_PAGE_MAX_SIZE:
       CATEDRA_KAFKA_MAX_RETRIES:
       CATEDRA_KAFKA_INITIAL_BACKOFF:
+      OUTBOX_RELAY_INTERVAL:
+      OUTBOX_RELAY_BATCH_SIZE:
+      OUTBOX_PUBLISH_TIMEOUT:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:

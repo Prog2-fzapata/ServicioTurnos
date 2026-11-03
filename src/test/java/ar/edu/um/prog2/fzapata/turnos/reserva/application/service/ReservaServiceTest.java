@@ -28,6 +28,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ConflictRetryPolicy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneDelivery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
@@ -41,6 +42,8 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUse
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ProcessCatedraEventUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.PublishPendingPhonesUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.SubmitPhoneUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
 
 @ExtendWith(MockitoExtension.class)
@@ -69,6 +72,12 @@ class ReservaServiceTest {
 
     @Mock
     private ProcessCatedraEventUseCase processCatedraEventUseCase;
+
+    @Mock
+    private SubmitPhoneUseCase submitPhoneUseCase;
+
+    @Mock
+    private PublishPendingPhonesUseCase publishPendingPhonesUseCase;
 
     @Spy
     private ConflictRetryPolicy conflictRetryPolicy = new ConflictRetryPolicy(3);
@@ -211,5 +220,59 @@ class ReservaServiceTest {
 
         assertThatThrownBy(() -> reservaService.processEvent(EVENT)).isInstanceOf(IllegalStateException.class);
         verify(processCatedraEventUseCase, times(1)).processEvent(EVENT);
+    }
+
+    @Test
+    void returnsTheReservationWithThePhoneQueued() {
+        ReservationProcess queued = ReservationProcess.builder().id(7L).status(ReservationStatus.PHONE_QUEUED).build();
+        when(submitPhoneUseCase.submitPhone(7L, "42", "2616159550")).thenReturn(Optional.of(queued));
+
+        assertThat(reservaService.submitPhone(7L, "42", "2616159550")).isSameAs(queued);
+    }
+
+    @Test
+    void submittingThePhoneOfAMissingOrForeignReservationBecomesAProcessNotFound() {
+        when(submitPhoneUseCase.submitPhone(7L, "42", "2616159550")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.submitPhone(7L, "42", "2616159550"))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
+    }
+
+    // Cada intento es una transacción nueva del caso de uso
+    @Test
+    void aVersionConflictRepeatsTheSubmission() {
+        ReservationProcess queued = ReservationProcess.builder().id(7L).status(ReservationStatus.PHONE_QUEUED).build();
+        when(submitPhoneUseCase.submitPhone(7L, "42", "2616159550"))
+                .thenThrow(new ReservationConflictException(7L, null)).thenReturn(Optional.of(queued));
+
+        assertThat(reservaService.submitPhone(7L, "42", "2616159550")).isSameAs(queued);
+        verify(submitPhoneUseCase, times(2)).submitPhone(7L, "42", "2616159550");
+    }
+
+    @Test
+    void givesUpOnTheSubmissionAfterExactlyTheConfiguredAttempts() {
+        ReservationConflictException conflict = new ReservationConflictException(7L, null);
+        when(submitPhoneUseCase.submitPhone(7L, "42", "2616159550")).thenThrow(conflict);
+
+        assertThatThrownBy(() -> reservaService.submitPhone(7L, "42", "2616159550")).isSameAs(conflict);
+        verify(submitPhoneUseCase, times(3)).submitPhone(7L, "42", "2616159550");
+    }
+
+    @Test
+    void aBusinessErrorWhileSubmittingIsNotRetried() {
+        when(submitPhoneUseCase.submitPhone(7L, "42", "2616159550"))
+                .thenThrow(new IllegalStateException("estado inválido"));
+
+        assertThatThrownBy(() -> reservaService.submitPhone(7L, "42", "2616159550"))
+                .isInstanceOf(IllegalStateException.class);
+        verify(submitPhoneUseCase, times(1)).submitPhone(7L, "42", "2616159550");
+    }
+
+    @Test
+    void returnsWhatTheRelayDelivered() {
+        List<PhoneDelivery> deliveries = List.of();
+        when(publishPendingPhonesUseCase.publishPending()).thenReturn(deliveries);
+
+        assertThat(reservaService.publishPendingPhones()).isSameAs(deliveries);
     }
 }

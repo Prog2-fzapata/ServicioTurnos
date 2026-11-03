@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidDateRangeException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidReservationStateException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PhoneWindowExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
@@ -104,5 +106,18 @@ public class ReservaExceptionHandler {
     public ResponseEntity<ProblemDetail> handleReservationNotCancellable(HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_NOT_CANCELLABLE",
                 "La reserva no se puede cancelar en su estado actual", request.getRequestURI());
+    }
+
+    // Incluye que la cátedra todavía no pidió el teléfono: la app espera a canSubmitPhone
+    @ExceptionHandler(InvalidReservationStateException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidReservationState(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "INVALID_RESERVATION_STATE",
+                "La reserva no puede recibir el teléfono en su estado actual", request.getRequestURI());
+    }
+
+    @ExceptionHandler(PhoneWindowExpiredException.class)
+    public ResponseEntity<ProblemDetail> handlePhoneWindowExpired(HttpServletRequest request) {
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_EXPIRED",
+                "Venció el tiempo para enviar el teléfono, inicie una nueva reserva", request.getRequestURI());
     }
 }
