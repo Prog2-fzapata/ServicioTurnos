@@ -93,7 +93,7 @@ class GetAvailabilityUseCaseImplTest {
 
     @BeforeEach
     void createUseCase() {
-        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient, Clock.fixed(NOW, MENDOZA));
+        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient, new ProfessionalGuard(), Clock.fixed(NOW, MENDOZA));
     }
 
     @Test
@@ -225,7 +225,7 @@ class GetAvailabilityUseCaseImplTest {
 
     @Test
     void aSlotThatStartsExactlyNowIsStillOffered() {
-        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient,
+        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient, new ProfessionalGuard(),
                 Clock.fixed(Instant.parse("2026-10-12T13:30:00Z"), MENDOZA));
         catalogReturns(professional(true, true, schedule(DayOfWeek.MONDAY, "10:00", "11:00", 30)));
         catedraReturns();
@@ -237,7 +237,7 @@ class GetAvailabilityUseCaseImplTest {
     // Con el reloj en UTC (13:10) todos los horarios de la mañana de Mendoza ya habrían pasado
     @Test
     void whichSlotsArePastDependsOnTheZoneOfTheClock() {
-        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient,
+        useCase = new GetAvailabilityUseCaseImpl(catalogClient, catedraApiClient, new ProfessionalGuard(),
                 Clock.fixed(NOW, ZoneId.of("UTC")));
         catalogReturns(professional(true, true, schedule(DayOfWeek.MONDAY, "09:00", "12:00", 30)));
         catedraReturns();

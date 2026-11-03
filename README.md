@@ -43,6 +43,8 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `CATEDRA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `200ms` |
 | `AVAILABILITY_ZONE` | Zona horaria de atención: en ella se decide qué horarios ya pasaron (la cátedra expresa las horas en hora local) | `America/Argentina/Mendoza` |
 | `AVAILABILITY_MAX_RANGE_DAYS` | Días máximos entre `from` y `to` de la disponibilidad, ambos incluidos. Mínimo 1 | `31` |
+| `RESERVATION_CONFLICT_MAX_ATTEMPTS` | Intentos en total, el primero incluido, cuando dos actualizaciones del mismo proceso de reserva chocan por la versión (bloqueo optimista). `1` desactiva el reintento. Mínimo 1 | `3` |
+| `RESERVATION_HOLD_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para conseguir un hold confirmado: cada intento es un hold más su confirmación. Se repite si se perdió la respuesta del hold y el horario figura libre, o si el hold venció antes de confirmarse. `1` desactiva el reintento. Mínimo 1 | `2` |
 
 ## Levantar con Docker
 
@@ -146,6 +148,50 @@ curl "localhost:8082/api/availability?professionalId=15&from=2026-10-12&to=2026-
 | `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde: nunca se devuelve una disponibilidad parcial |
 
 Primero se consulta a catálogo y, solo si el profesional se puede reservar, a la cátedra.
+
+## Iniciar una reserva
+
+`POST /api/reservations` con `{ "professionalId": 15, "date": "2026-10-12", "startTime": "09:30" }` inicia una reserva del usuario del token y la deja esperando el teléfono. Requiere un JWT válido: el usuario sale siempre del token, nunca del cuerpo.
+
+```bash
+curl -X POST localhost:8082/api/reservations -H "Authorization: Bearer <id_token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"professionalId": 15, "date": "2026-10-12", "startTime": "09:30"}'
+```
+
+Responde `201` con la reserva en `WAITING_PHONE` (`id`, `status`, el profesional, la fecha y la hora, y `expiresAt`). Nunca expone el usuario dueño ni los ids internos de la cátedra.
+
+1. Valida con catálogo que el profesional exista y esté habilitado (él y su categoría) y que el horario sea un turno de su agenda que todavía no pasó.
+2. Pide a catálogo el nombre y el apellido de la cuenta, con el mismo JWT del usuario. Si falta alguno, o tiene menos de 2 caracteres, responde `PATIENT_NAME_REQUIRED` y **no se crea nada**: la app los pide y reintenta.
+3. Crea el proceso local, pide el bloqueo temporal del horario (hold) a la cátedra y lo confirma.
+
+Si se pierde la respuesta del hold, no se repite ese pedido (la cátedra no tiene idempotencia): se consultan las ocupaciones y, si el horario figura libre, se pide un hold nuevo. Si el hold vence antes de confirmarse, también se pide uno nuevo. Ambos casos se limitan a `RESERVATION_HOLD_MAX_ATTEMPTS` intentos. Si lo que se pierde es la respuesta de la confirmación, el proceso queda en `HELD` y se responde `503`, porque la cátedra pudo haberlo confirmado.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `201` | La reserva quedó esperando el teléfono |
+| `400` `VALIDATION_ERROR` | Faltan campos o tienen un formato inválido |
+| `400` `PATIENT_NAME_REQUIRED` | La cuenta no tiene nombre o apellido (o tienen menos de 2 caracteres) |
+| `400` `INVALID_SLOT` | El horario no está en la agenda del profesional, o ya pasó |
+| `400` `PROFESSIONAL_DISABLED` | El profesional o su categoría están deshabilitados |
+| `404` `PROFESSIONAL_NOT_FOUND` | Catálogo no conoce al profesional |
+| `409` `SLOT_UNAVAILABLE` | El horario está ocupado (nunca se toma como «es mi hold») |
+| `409` `RESERVATION_EXPIRED` | El hold venció antes de confirmarse y no se consiguió otro dentro de los intentos |
+| `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde |
+
+## Máquina de estados de la reserva
+
+Cada reserva es un proceso local (`reservation_processes`) que avanza por estados mientras REST y Kafka le informan lo que pasa en la cátedra:
+
+```
+HOLD_REQUESTED → HELD → WAITING_PHONE → PHONE_QUEUED → PHONE_SUBMITTED → CONFIRMED → CANCELLED
+```
+
+Además, los estados intermedios pueden pasar a `EXPIRED` o `FAILED`, y la cátedra puede rechazar el teléfono (`PHONE_SUBMITTED → WAITING_PHONE`). El diagrama completo de transiciones, con sus reglas, está en [docs/maquina-de-estados.md](docs/maquina-de-estados.md).
+
+- **Estados finales** (`EXPIRED`, `FAILED`, `CANCELLED`): inmutables. Un evento tardío o duplicado no los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
+- **Todo cambio de estado pasa por un solo caso de uso.** Responde `APPLIED` (cambió), `ALREADY_IN_STATE` (ya estaba en ese estado: repetir un paso es inocuo) o `REJECTED` (el diagrama no lo permite: se ignora y se registra, sin error).
+- **Bloqueo optimista.** Si dos operaciones modifican el mismo proceso a la vez, la segunda relee el proceso y decide de nuevo con el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos. Es seguro porque los estados solo avanzan; si se agotan los intentos, la operación falla con un conflicto.
 
 ## Tests
 

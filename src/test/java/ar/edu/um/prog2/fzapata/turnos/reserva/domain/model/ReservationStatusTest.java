@@ -1,0 +1,75 @@
+package ar.edu.um.prog2.fzapata.turnos.reserva.domain.model;
+
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.CANCELLED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.CONFIRMED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.EXPIRED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.FAILED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.HELD;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.HOLD_REQUESTED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.PHONE_QUEUED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.PHONE_SUBMITTED;
+import static ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus.WAITING_PHONE;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+
+// La tabla se escribió a mano desde el diagrama 04 y no desde el código: si alguien cambia una transición, un par falla
+class ReservationStatusTest {
+
+    private static final Map<ReservationStatus, Set<ReservationStatus>> ALLOWED = Map.of(
+            HOLD_REQUESTED, EnumSet.of(HELD, FAILED),
+            HELD, EnumSet.of(WAITING_PHONE, EXPIRED, FAILED),
+            WAITING_PHONE, EnumSet.of(PHONE_QUEUED, EXPIRED, FAILED),
+            // CONFIRMED y WAITING_PHONE desde PHONE_QUEUED: la respuesta de la cátedra puede llegar antes que el ack
+            PHONE_QUEUED, EnumSet.of(PHONE_SUBMITTED, CONFIRMED, WAITING_PHONE, EXPIRED, FAILED),
+            PHONE_SUBMITTED, EnumSet.of(CONFIRMED, WAITING_PHONE, EXPIRED, FAILED),
+            CONFIRMED, EnumSet.of(CANCELLED),
+            EXPIRED, EnumSet.noneOf(ReservationStatus.class),
+            FAILED, EnumSet.noneOf(ReservationStatus.class),
+            CANCELLED, EnumSet.noneOf(ReservationStatus.class));
+
+    static Stream<Arguments> everyPair() {
+        return Arrays.stream(ReservationStatus.values()).flatMap(from -> Arrays.stream(ReservationStatus.values())
+                .map(target -> Arguments.of(from, target, ALLOWED.get(from).contains(target))));
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}: {2}")
+    @MethodSource("everyPair")
+    void everyPairOfStatesFollowsTheDiagram(ReservationStatus from, ReservationStatus target, boolean allowed) {
+        assertThat(from.canTransitionTo(target)).isEqualTo(allowed);
+    }
+
+    @Test
+    void theTableCoversEveryStatus() {
+        assertThat(ALLOWED.keySet()).containsExactlyInAnyOrder(ReservationStatus.values());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"})
+    void theFinalStatesAreFinalAndNeverMove(ReservationStatus status) {
+        assertThat(status.isFinal()).isTrue();
+        assertThat(Arrays.stream(ReservationStatus.values()).filter(status::canTransitionTo)).isEmpty();
+    }
+
+    // CONFIRMED todavía puede cancelarse, así que no es final
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"}, mode = EnumSource.Mode.EXCLUDE)
+    void theOtherStatesAreNotFinal(ReservationStatus status) {
+        assertThat(status.isFinal()).isFalse();
+    }
+
+    @Test
+    void aStatusNeverTransitionsToItself() {
+        assertThat(Arrays.stream(ReservationStatus.values()).filter(status -> status.canTransitionTo(status))).isEmpty();
+    }
+}
