@@ -9,14 +9,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,8 +40,12 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameR
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationNotCancellableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.service.ReservaService;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -225,5 +232,191 @@ class ReservationControllerTest {
         send(BODY)
                 .andExpect(jsonPath("$.detail", not(containsString("42"))))
                 .andExpect(jsonPath("$.detail", not(containsString("hold"))));
+    }
+
+    private ResultActions list(String query) throws Exception {
+        return mockMvc.perform(get(URL + query).with(jwt().jwt(token -> token.claim("uid", "42"))));
+    }
+
+    @Test
+    void listsTheReservationsOfTheUserWithTheTotalAndTheLinks() throws Exception {
+        PageQuery page = new PageQuery(1, 2);
+        when(reservaService.listReservations("42", ReservationStatus.WAITING_PHONE, page))
+                .thenReturn(new PagedResult<>(List.of(waitingForPhone()), 5, page));
+
+        list("?status=WAITING_PHONE&page=1&size=2")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(101))
+                .andExpect(jsonPath("$[0].userId").doesNotExist())
+                .andExpect(header().string("X-Total-Count", "5"))
+                .andExpect(header().string("Link", containsString("page=2&size=2>; rel=\"next\"")))
+                .andExpect(header().string("Link", containsString("status=WAITING_PHONE")));
+    }
+
+    @Test
+    void withoutParametersItAsksForTheFirstPageOf20AndNoStatus() throws Exception {
+        PageQuery page = new PageQuery(0, 20);
+        when(reservaService.listReservations("42", null, page)).thenReturn(new PagedResult<>(List.of(), 0, page));
+
+        list("").andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)))
+                .andExpect(header().string("X-Total-Count", "0"));
+    }
+
+    @Test
+    void theSortOfTheRequestDoesNotChangeTheFixedOrder() throws Exception {
+        PageQuery page = new PageQuery(0, 20);
+        when(reservaService.listReservations("42", null, page)).thenReturn(new PagedResult<>(List.of(), 0, page));
+
+        list("?sort=status,asc").andExpect(status().isOk());
+
+        verify(reservaService).listReservations("42", null, page);
+    }
+
+    @Test
+    void aStatusThatDoesNotExistIsAValidationError() throws Exception {
+        list("?status=NADA").andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void theListRequiresAToken() throws Exception {
+        mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void getsOneReservationOfTheUser() throws Exception {
+        when(reservaService.getReservation(101L, "42")).thenReturn(waitingForPhone());
+
+        list("/101")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(101))
+                .andExpect(jsonPath("$.status").value("WAITING_PHONE"))
+                .andExpect(jsonPath("$.userId").doesNotExist())
+                .andExpect(jsonPath("$.holdId").doesNotExist());
+    }
+
+    @Test
+    void aMissingOrForeignReservationIsAnIndistinguishableNotFound() throws Exception {
+        when(reservaService.getReservation(101L, "42")).thenThrow(new ReservationProcessNotFoundException(101L));
+
+        list("/101")
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RESERVATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value(URL + "/101"))
+                .andExpect(jsonPath("$.detail", not(containsString("101"))));
+    }
+
+    @Test
+    void aReservationIdThatIsNotANumberIsABadRequest() throws Exception {
+        list("/abc").andExpect(status().isBadRequest());
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void getRequiresAToken() throws Exception {
+        mockMvc.perform(get(URL + "/101")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(reservaService);
+    }
+
+    private ResultActions cancel(String body) throws Exception {
+        var request = post(URL + "/101/cancel").with(jwt().jwt(token -> token.claim("uid", "42")));
+        return mockMvc.perform(body == null ? request : request.contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    @Test
+    void cancelsWithTheReasonOfTheBody() throws Exception {
+        ReservationProcess cancelled = waitingForPhone();
+        cancelled.setStatus(ReservationStatus.CANCELLED);
+        cancelled.setCancellationReason("no puedo ir");
+        when(reservaService.cancelReservation(101L, "42", "no puedo ir")).thenReturn(cancelled);
+
+        cancel("{\"reason\": \"no puedo ir\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.cancellationReason").value("no puedo ir"))
+                .andExpect(jsonPath("$.expiresAt").doesNotExist());
+    }
+
+    @Test
+    void cancelsWithoutABody() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null)).thenReturn(waitingForPhone());
+
+        cancel(null).andExpect(status().isOk());
+
+        verify(reservaService).cancelReservation(101L, "42", null);
+    }
+
+    @Test
+    void cancelsWithAnEmptyObject() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null)).thenReturn(waitingForPhone());
+
+        cancel("{}").andExpect(status().isOk());
+
+        verify(reservaService).cancelReservation(101L, "42", null);
+    }
+
+    @Test
+    void aReasonOver500CharactersIsAValidationError() throws Exception {
+        cancel("{\"reason\": \"" + "a".repeat(501) + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("reason"));
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void aReasonOf500CharactersIsAccepted() throws Exception {
+        String reason = "a".repeat(500);
+        when(reservaService.cancelReservation(101L, "42", reason)).thenReturn(waitingForPhone());
+
+        cancel("{\"reason\": \"" + reason + "\"}").andExpect(status().isOk());
+    }
+
+    @Test
+    void cancelRequiresAToken() throws Exception {
+        mockMvc.perform(post(URL + "/101/cancel")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void cancellingAMissingOrForeignReservationIsANotFound() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null)).thenThrow(new ReservationProcessNotFoundException(101L));
+
+        cancel(null).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESERVATION_NOT_FOUND"));
+    }
+
+    @Test
+    void aReservationThatCannotBeCancelledIsAConflict() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null))
+                .thenThrow(new ReservationNotCancellableException(101L, ReservationStatus.WAITING_PHONE));
+
+        cancel(null)
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RESERVATION_NOT_CANCELLABLE"))
+                .andExpect(jsonPath("$.detail", not(containsString("WAITING_PHONE"))));
+    }
+
+    @Test
+    void ifTheCatedraIsDownCancellingIsServiceUnavailable() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null))
+                .thenThrow(new CatedraUnavailableException("caída", null));
+
+        cancel(null).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("CATEDRA_UNAVAILABLE"));
+    }
+
+    @Test
+    void aMismatchWithTheCatedraWhileCancellingIsAGenericInternalError() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null))
+                .thenThrow(new CatedraResponseException("La cátedra rechazó la cancelación con RESERVATION_NOT_FOUND", null));
+
+        cancel(null).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.detail", not(containsString("RESERVATION_NOT_FOUND"))));
     }
 }

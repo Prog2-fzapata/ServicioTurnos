@@ -72,4 +72,10 @@ class ReservationStatusTest {
     void aStatusNeverTransitionsToItself() {
         assertThat(Arrays.stream(ReservationStatus.values()).filter(status -> status.canTransitionTo(status))).isEmpty();
     }
+
+    // Una cancelada sí fue una reserva del usuario; vencida o fallida, no
+    @Test
+    void theDiscardedAttemptsAreExactlyTheExpiredAndTheFailedOnes() {
+        assertThat(ReservationStatus.DISCARDED).containsExactlyInAnyOrder(EXPIRED, FAILED);
+    }
 }

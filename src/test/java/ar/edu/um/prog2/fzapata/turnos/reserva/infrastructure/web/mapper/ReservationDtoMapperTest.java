@@ -10,12 +10,18 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.CancelReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.ReservationResponse;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.StartReservationRequest;
 
@@ -93,5 +99,31 @@ class ReservationDtoMapperTest {
     void mapsNullToNull() {
         assertThat(mapper.toRequest(null, "42")).isNull();
         assertThat(mapper.toResponse(null)).isNull();
+    }
+
+    @Test
+    void keepsTheReasonOfTheCancellation() {
+        assertThat(mapper.toReason(CancelReservationRequest.builder().reason("no puedo ir").build()))
+                .isEqualTo("no puedo ir");
+    }
+
+    @Test
+    void aMissingBodyHasNoReason() {
+        assertThat(mapper.toReason(null)).isNull();
+    }
+
+    // Un motivo en blanco no le dice nada a la cátedra: se manda como si no hubiera
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   \t"})
+    void aBlankReasonIsNoReason(String reason) {
+        assertThat(mapper.toReason(CancelReservationRequest.builder().reason(reason).build())).isNull();
+    }
+
+    @Test
+    void thePageComesFromTheRequestAndTheSortIsIgnored() {
+        PageRequest pageable = PageRequest.of(2, 15, Sort.by("status"));
+
+        assertThat(mapper.toPageQuery(pageable)).isEqualTo(new PageQuery(2, 15));
     }
 }

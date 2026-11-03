@@ -56,6 +56,9 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldConfirmation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldRetryPolicy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Occupancy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.OccupancyStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationFilter;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -87,6 +90,16 @@ class StartReservationUseCaseImplTest {
         @Override
         public Optional<ReservationProcess> findById(Long id) {
             return processes.stream().filter(process -> id.equals(process.getId())).findFirst();
+        }
+
+        @Override
+        public Optional<ReservationProcess> findByIdAndUserId(Long id, String userId) {
+            return findById(id).filter(process -> userId.equals(process.getUserId()));
+        }
+
+        @Override
+        public PagedResult<ReservationProcess> search(ReservationFilter filter, PageQuery page) {
+            throw new UnsupportedOperationException("Iniciar una reserva no lista reservas");
         }
 
         @Override

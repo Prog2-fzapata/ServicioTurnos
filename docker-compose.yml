@@ -42,6 +42,7 @@ services:
       AVAILABILITY_MAX_RANGE_DAYS:
       RESERVATION_CONFLICT_MAX_ATTEMPTS:
       RESERVATION_HOLD_MAX_ATTEMPTS:
+      RESERVATION_PAGE_MAX_SIZE:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:

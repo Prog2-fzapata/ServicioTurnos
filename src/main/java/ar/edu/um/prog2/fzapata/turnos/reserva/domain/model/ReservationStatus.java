@@ -1,5 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.domain.model;
 
+import java.util.List;
+
 // Estados de un proceso de reserva (diagrama 04). EXPIRED, FAILED y CANCELLED son finales: nada los reabre.
 // CONFIRMED solo puede pasar a CANCELLED
 public enum ReservationStatus {
@@ -12,6 +14,9 @@ public enum ReservationStatus {
     EXPIRED,
     FAILED,
     CANCELLED;
+
+    // Intentos que terminaron sin llegar a una reserva: «mis reservas» los oculta salvo que se pida su estado
+    public static final List<ReservationStatus> DISCARDED = List.of(EXPIRED, FAILED);
 
     public boolean isFinal() {
         return this == EXPIRED || this == FAILED || this == CANCELLED;

@@ -19,6 +19,8 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.Professional
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Availability;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -26,8 +28,11 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.CancelReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
 
 @ExtendWith(MockitoExtension.class)
 class ReservaServiceTest {
@@ -43,6 +48,15 @@ class ReservaServiceTest {
 
     @Mock
     private StartReservationUseCase startReservationUseCase;
+
+    @Mock
+    private ListReservationsUseCase listReservationsUseCase;
+
+    @Mock
+    private GetReservationUseCase getReservationUseCase;
+
+    @Mock
+    private CancelReservationUseCase cancelReservationUseCase;
 
     @InjectMocks
     private ReservaService reservaService;
@@ -102,5 +116,46 @@ class ReservaServiceTest {
 
         assertThatThrownBy(() -> reservaService.startReservation(request))
                 .isInstanceOf(ProfessionalNotFoundException.class).hasMessageContaining("99");
+    }
+
+    @Test
+    void returnsThePageOfReservationsOfTheUseCase() {
+        PageQuery page = new PageQuery(0, 20);
+        PagedResult<ReservationProcess> result = new PagedResult<>(List.of(), 0, page);
+        when(listReservationsUseCase.listReservations("42", ReservationStatus.CONFIRMED, page)).thenReturn(result);
+
+        assertThat(reservaService.listReservations("42", ReservationStatus.CONFIRMED, page)).isSameAs(result);
+    }
+
+    @Test
+    void returnsTheReservationOfTheUser() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).build();
+        when(getReservationUseCase.getReservation(7L, "42")).thenReturn(Optional.of(process));
+
+        assertThat(reservaService.getReservation(7L, "42")).isSameAs(process);
+    }
+
+    @Test
+    void aMissingOrForeignReservationBecomesAProcessNotFound() {
+        when(getReservationUseCase.getReservation(7L, "42")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.getReservation(7L, "42"))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
+    }
+
+    @Test
+    void returnsTheReservationThatWasCancelled() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).status(ReservationStatus.CANCELLED).build();
+        when(cancelReservationUseCase.cancelReservation(7L, "42", "motivo")).thenReturn(Optional.of(process));
+
+        assertThat(reservaService.cancelReservation(7L, "42", "motivo")).isSameAs(process);
+    }
+
+    @Test
+    void cancellingAMissingOrForeignReservationBecomesAProcessNotFound() {
+        when(cancelReservationUseCase.cancelReservation(7L, "42", null)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reservaService.cancelReservation(7L, "42", null))
+                .isInstanceOf(ReservationProcessNotFoundException.class).hasMessageContaining("7");
     }
 }
