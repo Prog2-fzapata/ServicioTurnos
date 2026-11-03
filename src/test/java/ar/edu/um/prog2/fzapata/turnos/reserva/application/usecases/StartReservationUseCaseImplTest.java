@@ -47,6 +47,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationE
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraEvent;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogSchedule;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraRejection;
@@ -90,6 +91,12 @@ class StartReservationUseCaseImplTest {
         @Override
         public Optional<ReservationProcess> findById(Long id) {
             return processes.stream().filter(process -> id.equals(process.getId())).findFirst();
+        }
+
+        @Override
+        public Optional<ReservationProcess> findByReservationProcessId(String reservationProcessId) {
+            return processes.stream().filter(process -> reservationProcessId.equals(process.getReservationProcessId()))
+                    .findFirst();
         }
 
         @Override
@@ -235,6 +242,27 @@ class StartReservationUseCaseImplTest {
         assertThat(stored.getPatientLastName()).isEqualTo("Perez");
         assertThat(stored.getCreatedAt()).isEqualTo(NOW);
         assertThat(stored.getFailureReason()).isNull();
+    }
+
+    // La cátedra publica el pedido de teléfono justo después de confirmar y su evento puede procesarse antes de que
+    // este caso de uso guarde WAITING_PHONE: no debe fallar ni perder el requestEventId que trae el evento
+    @Test
+    void ifTheEventOfThePhoneRequestIsProcessedFirstTheReservationIsStillStarted() {
+        catalogKnowsTheProfessionalAndTheAccount();
+        when(catedraApiClient.createHold(15L, DATE, START, "42")).thenReturn(hold("1"));
+        when(catedraApiClient.confirmHold("hold-1", "42", "Juan", "Perez")).thenAnswer(invocation -> {
+            ReservationTransition requested = new CatedraEvent("request-event-1", "AdditionalInformationRequested",
+                    "process-1", null, null, HOLD_EXPIRES).toTransition().orElseThrow();
+            new ApplyReservationTransitionUseCaseImpl(store, new ConflictRetryPolicy(3),
+                    Clock.fixed(NOW, ZoneId.of("America/Argentina/Mendoza"))).applyTransition(only().getId(), requested);
+            return confirmation("1");
+        });
+
+        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+
+        assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
+        assertThat(result.getRequestEventId()).isEqualTo("request-event-1");
+        assertThat(statuses()).containsExactly(ReservationStatus.WAITING_PHONE);
     }
 
     @Test

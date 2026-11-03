@@ -36,6 +36,12 @@ public class JpaReservationProcessRepositoryAdapter implements ReservationProces
     }
 
     @Override
+    public Optional<ReservationProcess> findByReservationProcessId(String reservationProcessId) {
+        return jpaReservationProcessRepository.findByReservationProcessId(reservationProcessId)
+                .map(reservationProcessMapper::toDomainModel);
+    }
+
+    @Override
     public Optional<ReservationProcess> findByIdAndUserId(Long id, String userId) {
         return jpaReservationProcessRepository.findByIdAndUserId(id, userId)
                 .map(reservationProcessMapper::toDomainModel);
@@ -51,7 +57,8 @@ public class JpaReservationProcessRepositoryAdapter implements ReservationProces
     }
 
     // La versión viaja en el modelo: si en la base ya es otra, JPA lanza el error de bloqueo optimista y acá se
-    // traduce a la excepción de la aplicación
+    // traduce a la excepción de la aplicación. También dentro de una transacción abierta: guardar un proceso leído
+    // antes con una versión que ya cambió falla en esta llamada
     @Override
     public ReservationProcess save(ReservationProcess process) {
         try {

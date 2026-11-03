@@ -11,6 +11,9 @@ public interface ReservationProcessRepository {
 
     Optional<ReservationProcess> findById(Long id);
 
+    // Por el id que la cátedra le dio al proceso (reservationProcessId), que es único
+    Optional<ReservationProcess> findByReservationProcessId(String reservationProcessId);
+
     // Vacío si el proceso no existe o es de otro usuario
     Optional<ReservationProcess> findByIdAndUserId(Long id, String userId);
 
