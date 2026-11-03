@@ -179,6 +179,28 @@ Si se pierde la respuesta del hold, no se repite ese pedido (la cátedra no tien
 | `409` `RESERVATION_EXPIRED` | El hold venció antes de confirmarse y no se consiguió otro dentro de los intentos |
 | `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde |
 
+## Consultar y cancelar reservas
+
+Los tres endpoints requieren un JWT válido y trabajan **solo con las reservas del usuario del token**: una ajena responde `404 RESERVATION_NOT_FOUND`, igual que una inexistente.
+
+```bash
+curl "localhost:8082/api/reservations?status=CONFIRMED&page=0&size=20" -H "Authorization: Bearer <id_token>"
+curl localhost:8082/api/reservations/101 -H "Authorization: Bearer <id_token>"
+curl -X POST localhost:8082/api/reservations/101/cancel -H "Authorization: Bearer <id_token>" \
+  -H 'Content-Type: application/json' -d '{"reason": "no puedo asistir"}'
+```
+
+- **`GET /api/reservations`** devuelve un arreglo, de la reserva más reciente a la más antigua por fecha y hora del turno (el orden es fijo), con `X-Total-Count` y `Link`. `size` vale 20 por defecto y se reduce al tope `RESERVATION_PAGE_MAX_SIZE` (100). Sin `status` no incluye las reservas `EXPIRED` ni `FAILED` (intentos que no llegaron a ser una reserva); con `status` devuelve exactamente las de ese estado, también `FAILED` o `EXPIRED`.
+- **`POST /api/reservations/{id}/cancel`** (el cuerpo y el motivo son opcionales, hasta 500 caracteres) cancela primero en la cátedra y recién entonces en el servicio, de modo que si la cátedra falla nada cambia y se puede repetir. Cancelar una reserva ya cancelada devuelve su estado actual sin llamar a la cátedra.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `200` | La lista, la reserva o la reserva ya cancelada |
+| `400` `VALIDATION_ERROR` | `status` desconocido, o motivo de más de 500 caracteres |
+| `404` `RESERVATION_NOT_FOUND` | No existe o es de otro usuario |
+| `409` `RESERVATION_NOT_CANCELLABLE` | La reserva no está confirmada, o la cátedra no permite cancelarla |
+| `503` `CATEDRA_UNAVAILABLE` | La cátedra no responde al cancelar |
+
 ## Máquina de estados de la reserva
 
 Cada reserva es un proceso local (`reservation_processes`) que avanza por estados mientras REST y Kafka le informan lo que pasa en la cátedra:

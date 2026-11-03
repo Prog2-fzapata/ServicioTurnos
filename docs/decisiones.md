@@ -154,3 +154,21 @@ Registro de las decisiones técnicas de este servicio: contexto, decisión, alte
   - Consultar siempre las ocupaciones antes del hold: una llamada y un motivo de `503` más sin cambiar el resultado, porque la cátedra ya responde `409`.
   - Impedir localmente el doble clic sobre el mismo horario: la cátedra ya responde `409` y se informa como horario no disponible.
 - **Consecuencias:** cada intento descartado deja una fila final (`EXPIRED` o `FAILED`) en `reservation_processes`; la consulta de «mis reservas» (TUR-12) tendrá que decidir si las muestra. En el peor caso, un pedido con la cátedra caída tarda lo que suman el hold, la consulta de ocupaciones y el segundo hold, hasta unos 30 segundos con los valores por defecto. Si el cambio a `HELD` falla después de crear el hold, el proceso queda en `HOLD_REQUESTED` sin ids y el hold huérfano vence solo; la recuperación al arrancar (TUR-16) lo pasa a `FAILED`. Los tests cubren el caso de uso sobre una base en memoria con la máquina de estados real, el contrato HTTP y el flujo completo con PostgreSQL y servidores simulados de catálogo y cátedra, y se verificó rompiendo el código a propósito en 28 puntos.
+
+## 12. Consultar y cancelar reservas propias: aislamiento, lista y orden de la cancelación
+
+- **Contexto:** la app necesita listar, consultar y cancelar las reservas del usuario. Cada intento descartado de iniciar una reserva (entrada 11) deja una fila final en `reservation_processes`, y cancelar toca dos sistemas (la cátedra y la base local) que no comparten transacción.
+- **Decisión:**
+  - **Aislamiento.** El usuario sale siempre del JWT y toda búsqueda es por `id` **y** `userId` (`findByIdAndUserId`). Una reserva ajena responde `404 RESERVATION_NOT_FOUND`, con el mismo cuerpo que una inexistente, para no revelar que existe.
+  - **Lista.** Orden fijo por fecha y hora del turno descendente, con el `id` como desempate para que las páginas no repitan ni salteen filas; el `sort` del pedido se ignora. Sin `status` se excluyen las `EXPIRED` y las `FAILED` (`ReservationStatus.DISCARDED`): son los intentos que no llegaron a ser una reserva. Con `status` se devuelven exactamente las de ese estado, también `FAILED` o `EXPIRED`; una `CANCELLED` se muestra siempre.
+  - **Paginación.** `Pageable` de Spring, con `X-Total-Count` y `Link` como en el catálogo. `size` 20 por defecto y tope `RESERVATION_PAGE_MAX_SIZE` (100 por defecto, el entorno gana).
+  - **Cancelación.** Primero la cátedra y después el proceso local, que pasa a `CANCELLED` por el caso de uso de transiciones (entrada 10). Un proceso ya `CANCELLED` se devuelve tal cual, sin llamar a la cátedra; cualquier otro estado distinto de `CONFIRMED` es `409 RESERVATION_NOT_CANCELLABLE`, también sin llamarla. Si la cátedra responde `RESERVATION_NOT_CANCELLABLE` es el mismo `409`; si responde `RESERVATION_NOT_FOUND` o `RESERVATION_OWNER_MISMATCH` es un desajuste entre servicios (`500` genérico) y el proceso local no cambia. El motivo es opcional, hasta 500 caracteres.
+  - **Sin transacción abierta mientras se llama a la cátedra.** Si la cátedra cancela y el guardado local falla (o se pierde la respuesta), el proceso sigue `CONFIRMED` y repetir el pedido lo repara, porque la cancelación en la cátedra es idempotente.
+- **Alternativas descartadas:**
+  - Mostrar todos los intentos y que la app filtre: la lista se llenaría de filas que el usuario nunca vio como reserva.
+  - Ocultar solo los intentos que nunca consiguieron un hold (`reservation_process_id` nulo) y mostrar las `FAILED` y `EXPIRED` con hold: son dos reglas distintas según un campo interno que el usuario no ve.
+  - Cancelar primero en la base: si la cátedra fallara habría que deshacerlo y quedaría una cancelación que no ocurrió.
+  - Llamar a la cátedra aunque el proceso ya esté `CANCELLED`: una llamada de más que no cambia el resultado.
+  - Responder `403` ante una reserva ajena: revela que existe.
+  - Paginación propia con `page` y `size` en vez de `Pageable`: se pierde el tope configurable de Spring y la coherencia con el catálogo.
+- **Consecuencias:** `CONFIRMED` solo se alcanza por Kafka o reconciliación (issues posteriores), así que los tests de cancelación insertan el proceso ya confirmado. La consulta usa el índice por `user_id` ya existente.
