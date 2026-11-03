@@ -23,6 +23,9 @@ Completar la clave de la base y el secreto del JWT en `.env` (el mismo valor que
 | `JWT_SECRET` | Clave con la que catálogo firma los tokens (HS512): Base64 de al menos 512 bits. Si falta o es más corta, el servicio no arranca | |
 | `CATEDRA_BASE_URL` | URL base de la API de la cátedra, sin `/` final. Obligatoria: si falta, el servicio no arranca | |
 | `CATEDRA_JWT` | JWT técnico de la cátedra (el `id_token` de su `POST /api/authenticate`). Es el mismo que usa catálogo: la cuenta técnica es una sola para los dos servicios. Obligatorio; no se escribe nunca en logs ni en mensajes de error | |
+| `CATEDRA_KAFKA_BOOTSTRAP_SERVERS` | Servidor de Kafka de la cátedra. Es la IP de ZeroTier, no el host interno que informa la API. Obligatoria: si falta, el servicio no arranca. Es el mismo valor que en catálogo | |
+| `CATEDRA_KAFKA_GROUP_ID` | Consumer group de la cuenta (`kafkaConsumerGroupId` de `integration`). Obligatoria. Es el mismo valor que en catálogo | |
+| `CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC` | Topic con los eventos de reserva de la cátedra (`kafkaAppointmentActionsTopic`). Obligatoria | |
 | `CATALOGO_BASE_URL` | URL del servicio de catálogo, sin `/` final. Obligatoria: si falta, el servicio no arranca. Desde el contenedor se llega por el host | `http://host.docker.internal:8081` |
 | `POSTGRES_PORT` | Puerto del host donde se publica PostgreSQL | `5433` |
 | `TURNOS_PORT` | Puerto del host donde se publica el servicio | `8082` |
@@ -45,6 +48,8 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `AVAILABILITY_MAX_RANGE_DAYS` | Días máximos entre `from` y `to` de la disponibilidad, ambos incluidos. Mínimo 1 | `31` |
 | `RESERVATION_CONFLICT_MAX_ATTEMPTS` | Intentos en total, el primero incluido, cuando dos actualizaciones del mismo proceso de reserva chocan por la versión (bloqueo optimista). `1` desactiva el reintento. Mínimo 1 | `3` |
 | `RESERVATION_HOLD_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para conseguir un hold confirmado: cada intento es un hold más su confirmación. Se repite si se perdió la respuesta del hold y el horario figura libre, o si el hold venció antes de confirmarse. `1` desactiva el reintento. Mínimo 1 | `2` |
+| `CATEDRA_KAFKA_MAX_RETRIES` | Reintentos después del primer intento cuando falla el procesamiento de un evento de Kafka. `0` los desactiva | `3` |
+| `CATEDRA_KAFKA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `1s` |
 
 ## Levantar con Docker
 
@@ -212,8 +217,28 @@ HOLD_REQUESTED → HELD → WAITING_PHONE → PHONE_QUEUED → PHONE_SUBMITTED �
 Además, los estados intermedios pueden pasar a `EXPIRED` o `FAILED`, y la cátedra puede rechazar el teléfono (`PHONE_SUBMITTED → WAITING_PHONE`). El diagrama completo de transiciones, con sus reglas, está en [docs/maquina-de-estados.md](docs/maquina-de-estados.md).
 
 - **Estados finales** (`EXPIRED`, `FAILED`, `CANCELLED`): inmutables. Un evento tardío o duplicado no los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
-- **Todo cambio de estado pasa por un solo caso de uso.** Responde `APPLIED` (cambió), `ALREADY_IN_STATE` (ya estaba en ese estado: repetir un paso es inocuo) o `REJECTED` (el diagrama no lo permite: se ignora y se registra, sin error).
+- **Todo cambio de estado pasa por un solo caso de uso.** Responde `APPLIED` (cambió), `DATA_COMPLETED` (ya estaba en ese estado pero le faltaban datos, por ejemplo el `requestEventId` del pedido de teléfono: se completan sin pisar los que tiene), `ALREADY_IN_STATE` (ya estaba en ese estado y no hay nada que completar: repetir un paso es inocuo) o `REJECTED` (el diagrama no lo permite: se ignora y se registra, sin error). Un proceso final nunca se modifica.
 - **Bloqueo optimista.** Si dos operaciones modifican el mismo proceso a la vez, la segunda relee el proceso y decide de nuevo con el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos. Es seguro porque los estados solo avanzan; si se agotan los intentos, la operación falla con un conflicto.
+
+## Eventos de la cátedra (Kafka)
+
+La cátedra publica lo que pasa con cada reserva en el topic `CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC` (la clave del mensaje es el `reservationProcessId`). El servicio los lee y los aplica a la máquina de estados:
+
+| Evento | Efecto en el proceso |
+| --- | --- |
+| `AdditionalInformationRequested` | Guarda su `eventId` como `requestEventId` (hay que devolverlo con el teléfono) y deja el proceso en `WAITING_PHONE` |
+| `AdditionalInformationRejected` | Vuelve a `WAITING_PHONE` (teléfono rechazado) |
+| `AppointmentConfirmed` | `CONFIRMED`, con el `reservationId` de la cátedra |
+| `AppointmentProcessExpired` | `EXPIRED`, con el motivo |
+| `AppointmentProcessInvalid` | `FAILED`, con el motivo |
+| `AppointmentCancelled` | `CANCELLED`, con el motivo |
+
+- **Idempotencia:** cada `eventId` procesado se guarda en `processed_events` en la misma transacción que el cambio de estado, así que o quedan las dos cosas o ninguna. La entrega es «al menos una vez»: un evento repetido se ignora.
+- **El offset se confirma después del `COMMIT`.** Si el procesamiento falla, no se confirma y se reintenta (`CATEDRA_KAFKA_MAX_RETRIES`, con espera creciente). Agotados los reintentos el mensaje se descarta con un log de error y se sigue; no hay cola de eventos muertos.
+- **Choque de versión:** si otra operación modifica el mismo proceso a la vez, se deshace toda la transacción (también el registro del `eventId`) y el evento se repite entero, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos.
+- **No retroceden estados:** un evento que el diagrama no permite desde el estado actual (uno tardío, o fuera de orden) se ignora, se registra en el log y no es un error. Los estados finales no cambian.
+- **Se ignoran y se registran** (para no trabar la lectura): un evento de un proceso que no existe, uno de un tipo que no se conoce y uno repetido. Un mensaje que no es un JSON válido, o al que le falta `eventId`, `eventType` o `reservationProcessId`, se descarta sin reintentos.
+- Sin offset guardado para el grupo se empieza por el principio del topic, para no perder lo publicado antes de que el grupo exista.
 
 ## Tests
 
