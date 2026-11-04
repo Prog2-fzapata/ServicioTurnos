@@ -13,6 +13,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraEvent;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ConflictRetryPolicy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ExpirationResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneDelivery;
@@ -23,6 +24,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.CancelReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ExpireOverdueReservationsUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
@@ -45,6 +47,7 @@ public class ReservaService {
     private final ProcessCatedraEventUseCase processCatedraEventUseCase;
     private final SubmitPhoneUseCase submitPhoneUseCase;
     private final PublishPendingPhonesUseCase publishPendingPhonesUseCase;
+    private final ExpireOverdueReservationsUseCase expireOverdueReservationsUseCase;
     private final ConflictRetryPolicy conflictRetryPolicy;
 
     public Availability getAvailability(AvailabilityQuery query) {
@@ -103,5 +106,9 @@ public class ReservaService {
 
     public List<PhoneDelivery> publishPendingPhones() {
         return publishPendingPhonesUseCase.publishPending();
+    }
+
+    public List<ExpirationResult> expireOverdueReservations() {
+        return expireOverdueReservationsUseCase.expireOverdue();
     }
 }

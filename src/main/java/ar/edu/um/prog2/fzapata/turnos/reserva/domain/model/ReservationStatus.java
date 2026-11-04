@@ -18,8 +18,18 @@ public enum ReservationStatus {
     // Intentos que terminaron sin llegar a una reserva: «mis reservas» los oculta salvo que se pida su estado
     public static final List<ReservationStatus> DISCARDED = List.of(EXPIRED, FAILED);
 
+    // Los que la tarea de vencimiento puede cerrar: tienen un expiresAt y siguen abiertos. HOLD_REQUESTED aún no lo
+    // tiene (lo resuelve la recuperación al arrancar) y CONFIRMED ya no vence
+    public static final List<ReservationStatus> EXPIRABLE = List.of(HELD, WAITING_PHONE, PHONE_QUEUED, PHONE_SUBMITTED);
+
     public boolean isFinal() {
         return this == EXPIRED || this == FAILED || this == CANCELLED;
+    }
+
+    // Desde PHONE_QUEUED el teléfono pudo haber llegado a la cátedra (el relay publica antes de anotar el ack), así que
+    // ella pudo confirmar sin que turnos lo sepa todavía. Antes de ese punto no tiene con qué confirmar
+    public boolean phoneMayHaveReachedCatedra() {
+        return this == PHONE_QUEUED || this == PHONE_SUBMITTED;
     }
 
     // Una respuesta de la cátedra puede llegar antes de que el relay anote que el teléfono se envió: por eso desde

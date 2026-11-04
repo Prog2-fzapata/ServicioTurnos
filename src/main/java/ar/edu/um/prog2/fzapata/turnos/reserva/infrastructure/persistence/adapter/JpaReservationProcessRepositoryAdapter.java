@@ -1,5 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.persistence.adapter;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -54,6 +56,13 @@ public class JpaReservationProcessRepositoryAdapter implements ReservationProces
                 PageRequest.of(page.page(), page.size(), NEWEST_FIRST));
         return new PagedResult<>(found.getContent().stream().map(reservationProcessMapper::toDomainModel).toList(),
                 found.getTotalElements(), page);
+    }
+
+    @Override
+    public List<ReservationProcess> findExpirable(Instant expiredUntil, int limit) {
+        return jpaReservationProcessRepository
+                .findExpirable(ReservationStatus.EXPIRABLE, expiredUntil, PageRequest.of(0, limit)).stream()
+                .map(reservationProcessMapper::toDomainModel).toList();
     }
 
     // La versión viaja en el modelo: si en la base ya es otra, JPA lanza el error de bloqueo optimista y acá se

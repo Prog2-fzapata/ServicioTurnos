@@ -113,6 +113,11 @@ class StartReservationUseCaseImplTest {
         }
 
         @Override
+        public List<ReservationProcess> findExpirable(Instant expiredUntil, int limit) {
+            throw new UnsupportedOperationException("Iniciar una reserva no expira reservas");
+        }
+
+        @Override
         public ReservationProcess save(ReservationProcess process) {
             if (process.getId() == null) {
                 process.setId(ids.incrementAndGet());
