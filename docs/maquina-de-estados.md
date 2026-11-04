@@ -37,6 +37,7 @@ stateDiagram-v2
 
 ## Reglas
 
+- **Vencimiento:** además del evento `AppointmentProcessExpired`, una tarea expira los procesos abiertos con `expiresAt` vencido hace más que un margen (60 s), con el motivo `HOLD_EXPIRED`. Antes de expirar uno en `PHONE_QUEUED` o `PHONE_SUBMITTED` le pregunta a la cátedra si ya lo tiene confirmado y, si es así, lo repara a `CONFIRMED`; ante la duda no expira (D91).
 - **Estados finales:** `EXPIRED`, `FAILED` y `CANCELLED`. Son inmutables: ni un evento tardío ni uno duplicado los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
 - **Un solo lugar cambia el estado.** Todo paso pasa por un único caso de uso (`ApplyReservationTransitionUseCase`), que responde:
   - `APPLIED`: el estado cambió.
