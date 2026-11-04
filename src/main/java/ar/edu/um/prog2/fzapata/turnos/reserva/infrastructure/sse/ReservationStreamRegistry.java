@@ -20,7 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 
 // Las conexiones SSE abiertas, por usuario. Vive en memoria: con una sola instancia alcanza (D12) y, si se pierde, la
 // app reconecta y reconsulta. Cada lista se reemplaza entera al cambiar, así quien la lee ve siempre una copia estable.
-// Es un SmartLifecycle para cerrar todo al empezar el apagado: Spring espera a que terminen los pedidos en curso y un
+// Es un SmartLifecycle para cerrar todas las conexiones al empezar el apagado: Spring espera a que terminen los pedidos en curso y un
 // stream abierto no termina solo, así que sin esto cada reinicio se demoraría los 30 s del plazo de apagado
 @Slf4j
 @Component

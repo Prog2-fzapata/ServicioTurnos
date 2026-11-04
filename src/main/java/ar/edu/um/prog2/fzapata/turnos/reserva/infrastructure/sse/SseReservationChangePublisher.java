@@ -1,5 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse;
 
+import java.util.Objects;
+
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -20,6 +22,8 @@ public class SseReservationChangePublisher implements ReservationChangePublisher
     // El contenido se arma ahora, con el proceso tal como quedó: después del COMMIT ya no se lee de ningún lado
     @Override
     public void publish(ReservationProcess process) {
+        // Un adaptador de persistencia podría devolver null: se falla acá y no más adelante con un NullPointerException
+        Objects.requireNonNull(process, "El proceso a publicar es obligatorio");
         String userId = process.getUserId();
         String eventId = mapper.toEventId(process);
         ReservationUpdate update = mapper.toUpdate(process);

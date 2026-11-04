@@ -1,6 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -50,6 +51,14 @@ class SseReservationChangePublisherTest {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    @Test
+    void aMissingProcessIsRejectedRightAway() {
+        assertThatThrownBy(() -> publisher.publish(null)).isInstanceOf(NullPointerException.class)
+                .hasMessage("El proceso a publicar es obligatorio");
+
+        verifyNoInteractions(registry);
     }
 
     @Test

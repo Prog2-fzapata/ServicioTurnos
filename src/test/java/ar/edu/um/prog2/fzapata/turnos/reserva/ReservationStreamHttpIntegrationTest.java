@@ -41,6 +41,8 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationProcessRepository;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse.ReservationStreamRegistry;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse.ReservationUpdate;
 import lombok.RequiredArgsConstructor;
 
 // El stream por HTTP real, con servidor, Spring Security y un cliente que lee línea por línea: lo que MockMvc no
@@ -58,6 +60,7 @@ class ReservationStreamHttpIntegrationTest {
     private final JdbcClient jdbc;
     private final ReservaService reservaService;
     private final ReservationProcessRepository repository;
+    private final ReservationStreamRegistry registry;
     private final SecretKey jwtSecretKey;
 
     @LocalServerPort
@@ -121,6 +124,22 @@ class ReservationStreamHttpIntegrationTest {
         throw new AssertionError("No llegó una línea con «" + fragment + "» en " + WAIT);
     }
 
+    // Todas las líneas hasta la que cumple, inclusive
+    private List<String> readUntil(BlockingQueue<String> lines, String fragment) throws InterruptedException {
+        List<String> read = new ArrayList<>();
+        long deadline = System.nanoTime() + WAIT.toNanos();
+        while (System.nanoTime() < deadline) {
+            String line = lines.poll(100, TimeUnit.MILLISECONDS);
+            if (line != null) {
+                read.add(line);
+                if (line.contains(fragment)) {
+                    return read;
+                }
+            }
+        }
+        throw new AssertionError("No llegó una línea con «" + fragment + "» en " + WAIT);
+    }
+
     private ReservationProcess heldProcess(String userId) {
         return repository.save(ReservationProcess.builder().userId(userId).reservationProcessId("process-1")
                 .holdId("hold-1").professionalId(15L).professionalFirstName("Ana").professionalLastName("Gomez")
@@ -150,10 +169,13 @@ class ReservationStreamHttpIntegrationTest {
         awaitLine(someoneElses, ":ping");
 
         reservaService.applyTransition(held.getId(), ReservationTransition.to(ReservationStatus.WAITING_PHONE));
-        // Varios latidos después: si el aviso hubiera llegado a esta conexión ya estaría en la cola
-        Thread.sleep(800);
+        // Un evento marcador por la misma conexión: la conexión conserva el orden, así que cuando el marcador llega
+        // todo lo enviado antes ya está leído y se puede afirmar que el cambio no estuvo
+        registry.send("99", "marker", new ReservationUpdate(0L, ReservationStatus.HELD, null, false, T0));
 
-        assertThat(someoneElses).noneMatch(line -> line.contains("reservation-updated"));
+        List<String> untilTheMarker = readUntil(someoneElses, "id:marker");
+
+        assertThat(untilTheMarker).noneMatch(line -> line.startsWith("id:" + held.getId() + "-"));
     }
 
     // Una vez enviada la cabecera 200 no existe un 401: el servidor cierra el stream y la app debe renovar el token
