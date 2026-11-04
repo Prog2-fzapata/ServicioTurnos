@@ -15,6 +15,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ApplyReservationTransitionUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationChangePublisher;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationProcessRepository;
 import lombok.RequiredArgsConstructor;
 
@@ -23,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTransitionUseCase {
 
     private final ReservationProcessRepository reservationProcessRepository;
+    private final ReservationChangePublisher reservationChangePublisher;
     private final ConflictRetryPolicy conflictRetryPolicy;
     private final Clock clock;
 
@@ -60,8 +62,10 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
             return new TransitionResult(TransitionOutcome.ALREADY_IN_STATE, status, status, process);
         }
         process.setUpdatedAt(clock.instant());
-        return new TransitionResult(TransitionOutcome.DATA_COMPLETED, status, status,
-                reservationProcessRepository.save(process));
+        ReservationProcess saved = reservationProcessRepository.save(process);
+        // El estado no cambia pero sí lo que ve la app (por ejemplo canSubmitPhone con el pedido de teléfono)
+        reservationChangePublisher.publish(saved);
+        return new TransitionResult(TransitionOutcome.DATA_COMPLETED, status, status, saved);
     }
 
     // Un intento sobre el proceso recién leído. Solo guarda si el paso se aplica, y el guardado compara la versión
@@ -84,6 +88,7 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
             process.setCancelledAt(now);
         }
         ReservationProcess saved = reservationProcessRepository.save(process);
+        reservationChangePublisher.publish(saved);
         return new TransitionResult(TransitionOutcome.APPLIED, from, target, saved);
     }
 
