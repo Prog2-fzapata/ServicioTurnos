@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +33,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationTransition;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationChangePublisher;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationProcessRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +46,9 @@ class ApplyReservationTransitionUseCaseImplTest {
     @Mock
     private ReservationProcessRepository repository;
 
+    @Mock
+    private ReservationChangePublisher publisher;
+
     private static ReservationProcess process(ReservationStatus status) {
         return ReservationProcess.builder().id(ID).userId("42").professionalId(15L).status(status).createdAt(BEFORE)
                 .updatedAt(BEFORE).version(3L).build();
@@ -54,7 +59,7 @@ class ApplyReservationTransitionUseCaseImplTest {
     }
 
     private ApplyReservationTransitionUseCaseImpl useCase(int maxAttempts) {
-        return new ApplyReservationTransitionUseCaseImpl(repository, attempts(maxAttempts),
+        return new ApplyReservationTransitionUseCaseImpl(repository, publisher, attempts(maxAttempts),
                 Clock.fixed(NOW, ZoneId.of("UTC")));
     }
 
@@ -279,6 +284,99 @@ class ApplyReservationTransitionUseCaseImplTest {
 
         assertThat(result.outcome()).isEqualTo(TransitionOutcome.DATA_COMPLETED);
         verify(repository, times(2)).save(any());
+    }
+
+    // ---------- Aviso del cambio (stream SSE)
+
+    @Test
+    void anAppliedStepPublishesTheProcessAsSaved() {
+        ReservationProcess storedAfterSaving = process(ReservationStatus.WAITING_PHONE);
+        storedAfterSaving.setVersion(4L);
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.HELD)));
+        when(repository.save(any())).thenReturn(storedAfterSaving);
+
+        useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE));
+
+        verify(publisher).publish(storedAfterSaving);
+    }
+
+    // El pedido de teléfono no cambia el estado pero sí canSubmitPhone: la app tiene que enterarse
+    @Test
+    void completedDataIsPublishedToo() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.WAITING_PHONE)));
+        ReservationProcess storedAfterSaving = process(ReservationStatus.WAITING_PHONE);
+        storedAfterSaving.setRequestEventId("request-event-8a31");
+        when(repository.save(any())).thenReturn(storedAfterSaving);
+
+        useCase().applyTransition(ID, ReservationTransition.builder().target(ReservationStatus.WAITING_PHONE)
+                .requestEventId("request-event-8a31").build());
+
+        verify(publisher).publish(storedAfterSaving);
+    }
+
+    @Test
+    void applyingOncePublishesTooBecauseThePublisherWaitsForTheCommit() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.PHONE_SUBMITTED)));
+        saveReturnsWhatItReceives();
+
+        useCase().applyTransitionOnce(ID, ReservationTransition.to(ReservationStatus.CONFIRMED));
+
+        verify(publisher).publish(any(ReservationProcess.class));
+    }
+
+    @Test
+    void repeatingTheCurrentStatusPublishesNothing() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.WAITING_PHONE)));
+
+        useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE));
+
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void aRejectedStepPublishesNothing() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.EXPIRED)));
+
+        useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.CONFIRMED));
+
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void aMissingProcessPublishesNothing() {
+        when(repository.findById(ID)).thenReturn(Optional.empty());
+
+        useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.FAILED));
+
+        verifyNoInteractions(publisher);
+    }
+
+    // Si el guardado falla no hay nada que avisar; el intento que sí guarda avisa una sola vez
+    @Test
+    void aConflictPublishesOnlyTheAttemptThatSaved() {
+        when(repository.findById(ID)).thenReturn(Optional.of(process(ReservationStatus.HELD)),
+                Optional.of(process(ReservationStatus.HELD)));
+        when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        useCase().applyTransition(ID, ReservationTransition.to(ReservationStatus.WAITING_PHONE));
+
+        verify(publisher, times(1)).publish(any(ReservationProcess.class));
+    }
+
+    @Test
+    void anExhaustedConflictPublishesNothing() {
+        // Una lectura nueva por intento: el primero ya dejó la instancia anterior en el estado destino
+        when(repository.findById(ID))
+                .thenAnswer(invocation -> Optional.of(process(ReservationStatus.HELD)));
+        when(repository.save(any())).thenThrow(new ReservationConflictException(ID, null));
+        ApplyReservationTransitionUseCaseImpl useCase = useCase(2);
+        ReservationTransition transition = ReservationTransition.to(ReservationStatus.WAITING_PHONE);
+
+        assertThatThrownBy(() -> useCase.applyTransition(ID, transition))
+                .isInstanceOf(ReservationConflictException.class);
+
+        verifyNoInteractions(publisher);
     }
 
     // ---------- Un solo intento (dentro de una transacción ya abierta)

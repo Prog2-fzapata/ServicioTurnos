@@ -68,6 +68,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionOutcome;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.CatalogClient;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.CatedraApiClient;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationChangePublisher;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationProcessRepository;
 
 // Catálogo y cátedra son mocks; la base es una en memoria y la máquina de estados es la real, así que se miran los
@@ -76,6 +77,8 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.ReservationProces
 class StartReservationUseCaseImplTest {
 
     private static final Instant NOW = Instant.parse("2026-10-12T13:10:00Z");
+    private static final ReservationChangePublisher NO_NOTICE = change -> {
+    };
     private static final LocalDate DATE = LocalDate.of(2026, 10, 19);
     private static final LocalTime START = LocalTime.of(9, 30);
     private static final Instant HOLD_EXPIRES = Instant.parse("2026-10-12T13:20:00Z");
@@ -163,7 +166,7 @@ class StartReservationUseCaseImplTest {
 
     private StartReservationUseCaseImpl useCaseWith(int holdAttempts) {
         Clock clock = Clock.fixed(NOW, ZoneId.of("America/Argentina/Mendoza"));
-        ApplyReservationTransitionUseCaseImpl transitions = new ApplyReservationTransitionUseCaseImpl(store,
+        ApplyReservationTransitionUseCaseImpl transitions = new ApplyReservationTransitionUseCaseImpl(store, NO_NOTICE,
                 new ConflictRetryPolicy(3), clock);
         return new StartReservationUseCaseImpl(catalogClient, catedraApiClient, store, transitions,
                 new ProfessionalGuard(), new HoldRetryPolicy(holdAttempts), clock);
@@ -253,7 +256,7 @@ class StartReservationUseCaseImplTest {
         when(catedraApiClient.confirmHold("hold-1", "42", "Juan", "Perez")).thenAnswer(invocation -> {
             ReservationTransition requested = new CatedraEvent("request-event-1", "AdditionalInformationRequested",
                     "process-1", null, null, HOLD_EXPIRES).toTransition().orElseThrow();
-            new ApplyReservationTransitionUseCaseImpl(store, new ConflictRetryPolicy(3),
+            new ApplyReservationTransitionUseCaseImpl(store, NO_NOTICE, new ConflictRetryPolicy(3),
                     Clock.fixed(NOW, ZoneId.of("America/Argentina/Mendoza"))).applyTransition(only().getId(), requested);
             return confirmation("1");
         });
@@ -697,6 +700,7 @@ class StartReservationUseCaseImplTest {
     @Test
     void aFailureRecordingTheClosureDoesNotHideTheOriginalError() {
         ApplyReservationTransitionUseCaseImpl brokenTransitions = new ApplyReservationTransitionUseCaseImpl(store,
+                NO_NOTICE,
                 new ConflictRetryPolicy(1), Clock.fixed(NOW, ZoneId.of("UTC"))) {
             @Override
             public Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition) {
@@ -717,7 +721,7 @@ class StartReservationUseCaseImplTest {
     // Si el proceso no está donde este caso de uso cree, seguir sería trabajar sobre un estado imposible
     @Test
     void aStepThatIsNotAppliedIsAnInconsistencyAndStopsTheReservation() {
-        ApplyReservationTransitionUseCaseImpl stuck = new ApplyReservationTransitionUseCaseImpl(store,
+        ApplyReservationTransitionUseCaseImpl stuck = new ApplyReservationTransitionUseCaseImpl(store, NO_NOTICE,
                 new ConflictRetryPolicy(1), Clock.fixed(NOW, ZoneId.of("UTC"))) {
             @Override
             public Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition) {
@@ -738,7 +742,7 @@ class StartReservationUseCaseImplTest {
     // El proceso desapareció entre un paso y el siguiente: no se sigue como si nada
     @Test
     void aProcessThatDisappearsBetweenStepsStopsTheReservation() {
-        ApplyReservationTransitionUseCaseImpl vanishing = new ApplyReservationTransitionUseCaseImpl(store,
+        ApplyReservationTransitionUseCaseImpl vanishing = new ApplyReservationTransitionUseCaseImpl(store, NO_NOTICE,
                 new ConflictRetryPolicy(1), Clock.fixed(NOW, ZoneId.of("UTC"))) {
             @Override
             public Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition) {
