@@ -4,6 +4,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneSubmissionRules;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.CancelReservationRequest;
@@ -47,6 +48,7 @@ public class ReservationDtoMapper {
                 .patientPhone(process.getPatientPhone())
                 .failureReason(process.getFailureReason())
                 .cancellationReason(process.getCancellationReason())
+                .canSubmitPhone(PhoneSubmissionRules.canSubmit(process))
                 .createdAt(process.getCreatedAt())
                 .updatedAt(process.getUpdatedAt())
                 .build();

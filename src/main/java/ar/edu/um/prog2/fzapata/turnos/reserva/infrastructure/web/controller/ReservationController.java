@@ -24,6 +24,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.CancelReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.ReservationResponse;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.StartReservationRequest;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.SubmitPhoneRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.mapper.ReservationDtoMapper;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtClaims;
 import ar.edu.um.prog2.fzapata.turnos.shared.web.PaginationHeaders;
@@ -84,5 +85,15 @@ public class ReservationController {
             @PathVariable Long id, @Valid @RequestBody(required = false) CancelReservationRequest request) {
         return reservationDtoMapper.toResponse(reservaService.cancelReservation(id,
                 jwt.getClaimAsString(JwtClaims.USER_ID), reservationDtoMapper.toReason(request)));
+    }
+
+    @Operation(summary = "Envía el teléfono del paciente. Solo con la reserva en WAITING_PHONE y el pedido de la "
+            + "cátedra ya recibido (canSubmitPhone). La deja en PHONE_QUEUED y responde 202: el resultado final "
+            + "llega después, cuando la cátedra confirma o rechaza")
+    @PostMapping("/{id}/phone")
+    public ResponseEntity<ReservationResponse> submitPhone(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id, @Valid @RequestBody SubmitPhoneRequest request) {
+        return new ResponseEntity<>(reservationDtoMapper.toResponse(reservaService.submitPhone(id,
+                jwt.getClaimAsString(JwtClaims.USER_ID), request.getPhoneNumber())), HttpStatus.ACCEPTED);
     }
 }

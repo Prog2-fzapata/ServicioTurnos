@@ -57,13 +57,13 @@ public class JpaReservationProcessRepositoryAdapter implements ReservationProces
     }
 
     // La versión viaja en el modelo: si en la base ya es otra, JPA lanza el error de bloqueo optimista y acá se
-    // traduce a la excepción de la aplicación. También dentro de una transacción abierta: guardar un proceso leído
-    // antes con una versión que ya cambió falla en esta llamada
+    // traduce a la excepción de la aplicación. saveAndFlush escribe en esta llamada: dentro de una transacción abierta
+    // el guardado normal recién escribiría al hacer COMMIT, fuera de este try, y el choque no se traduciría
     @Override
     public ReservationProcess save(ReservationProcess process) {
         try {
             return reservationProcessMapper
-                    .toDomainModel(jpaReservationProcessRepository.save(reservationProcessMapper.toEntity(process)));
+                    .toDomainModel(jpaReservationProcessRepository.saveAndFlush(reservationProcessMapper.toEntity(process)));
         } catch (OptimisticLockingFailureException e) {
             throw new ReservationConflictException(process.getId(), e);
         }

@@ -35,7 +35,9 @@ import org.springframework.test.web.servlet.ResultActions;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidReservationStateException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PhoneWindowExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
@@ -418,5 +420,181 @@ class ReservationControllerTest {
         cancel(null).andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
                 .andExpect(jsonPath("$.detail", not(containsString("RESERVATION_NOT_FOUND"))));
+    }
+
+    private ResultActions submitPhone(String body) throws Exception {
+        var request = post(URL + "/101/phone").with(jwt().jwt(token -> token.claim("uid", "42")));
+        return mockMvc.perform(body == null ? request : request.contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private ReservationProcess queued() {
+        ReservationProcess process = waitingForPhone();
+        process.setStatus(ReservationStatus.PHONE_QUEUED);
+        process.setRequestEventId("request-event-8a31");
+        process.setPatientPhone("+5492615551234");
+        return process;
+    }
+
+    @Test
+    void submittingThePhoneAnswersAcceptedWithTheReservationQueued() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "+5492615551234")).thenReturn(queued());
+
+        submitPhone("{\"phoneNumber\": \"+5492615551234\"}")
+                .andExpect(status().isAccepted())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(101))
+                .andExpect(jsonPath("$.status").value("PHONE_QUEUED"))
+                .andExpect(jsonPath("$.patientPhone").value("+5492615551234"))
+                .andExpect(jsonPath("$.canSubmitPhone").value(false))
+                .andExpect(jsonPath("$.userId").doesNotExist())
+                .andExpect(jsonPath("$.requestEventId").doesNotExist());
+    }
+
+    // El usuario sale del token y el teléfono viaja tal cual lo escribió: lo normaliza el caso de uso
+    @Test
+    void thePhoneTravelsAsTypedAndTheUserComesFromTheToken() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "+54 9 261 615-9550")).thenReturn(queued());
+
+        submitPhone("{\"phoneNumber\": \"+54 9 261 615-9550\", \"userId\": \"99\"}")
+                .andExpect(status().isAccepted());
+
+        verify(reservaService).submitPhone(101L, "42", "+54 9 261 615-9550");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            +5492616159550
+            +542616159550
+            2616159550
+            (0261) 615.9550
+            +54 9 261 615-9550
+            1234567
+            123456789012345
+            """)
+    void acceptsTheFormatsPeopleUse(String phone) throws Exception {
+        when(reservaService.submitPhone(101L, "42", phone)).thenReturn(queued());
+
+        submitPhone("{\"phoneNumber\": \"" + phone + "\"}").andExpect(status().isAccepted());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            123456
+            1234567890123456
+            261-ABC-9550
+            54+92616159550
+            261/615/9550
+            """)
+    void anInvalidPhoneIsAValidationErrorOnThatField(String phone) throws Exception {
+        submitPhone("{\"phoneNumber\": \"" + phone + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("phoneNumber"));
+        verifyNoInteractions(reservaService);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            {}
+            {"phoneNumber": null}
+            {"phoneNumber": ""}
+            {"phoneNumber": "   "}
+            """)
+    void aMissingOrBlankPhoneIsAValidationError(String body) throws Exception {
+        submitPhone(body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[*].field").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is("phoneNumber"))));
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void aPhoneOverTheInputLimitIsAValidationError() throws Exception {
+        submitPhone("{\"phoneNumber\": \"" + "1".repeat(41) + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[?(@.field == 'phoneNumber')]").exists());
+        verifyNoInteractions(reservaService);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            {"phoneNumber": ["2616159550"]}
+            not-json
+            """)
+    void aBodyThatCannotBeReadIsAValidationErrorWhenSubmittingThePhone(String body) throws Exception {
+        submitPhone(body).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void submittingThePhoneWithoutABodyIsABadRequest() throws Exception {
+        submitPhone(null).andExpect(status().isBadRequest());
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void submittingThePhoneRequiresAToken() throws Exception {
+        mockMvc.perform(post(URL + "/101/phone").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phoneNumber\": \"2616159550\"}")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(reservaService);
+    }
+
+    @Test
+    void submittingThePhoneOfAMissingOrForeignReservationIsANotFound() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "2616159550"))
+                .thenThrow(new ReservationProcessNotFoundException(101L));
+
+        submitPhone("{\"phoneNumber\": \"2616159550\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESERVATION_NOT_FOUND"));
+    }
+
+    // Incluye que la cátedra todavía no pidió el teléfono
+    @Test
+    void aReservationThatCannotReceiveThePhoneIsAConflictThatDoesNotRevealTheStatus() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "2616159550"))
+                .thenThrow(new InvalidReservationStateException(101L, ReservationStatus.CONFIRMED));
+
+        submitPhone("{\"phoneNumber\": \"2616159550\"}")
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("INVALID_RESERVATION_STATE"))
+                .andExpect(jsonPath("$.detail", not(containsString("CONFIRMED"))));
+    }
+
+    // Mismo código que el hold vencido, con su propio mensaje: acá lo que venció es el tiempo para el teléfono
+    @Test
+    void anExpiredReservationIsAConflictWithItsOwnMessage() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "2616159550")).thenThrow(new PhoneWindowExpiredException(101L));
+
+        submitPhone("{\"phoneNumber\": \"2616159550\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESERVATION_EXPIRED"))
+                .andExpect(jsonPath("$.detail", containsString("teléfono")))
+                .andExpect(jsonPath("$.detail", not(containsString("bloqueo"))));
+    }
+
+    @Test
+    void theReservationTellsTheAppWhenThePhoneCanBeSubmitted() throws Exception {
+        ReservationProcess asked = waitingForPhone();
+        asked.setRequestEventId("request-event-8a31");
+        when(reservaService.getReservation(101L, "42")).thenReturn(asked);
+
+        mockMvc.perform(get(URL + "/101").with(jwt().jwt(token -> token.claim("uid", "42"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("WAITING_PHONE"))
+                .andExpect(jsonPath("$.canSubmitPhone").value(true));
+    }
+
+    @Test
+    void theReservationTellsTheAppWhenThePhoneCannotBeSubmittedYet() throws Exception {
+        when(reservaService.getReservation(101L, "42")).thenReturn(waitingForPhone());
+
+        mockMvc.perform(get(URL + "/101").with(jwt().jwt(token -> token.claim("uid", "42"))))
+                .andExpect(jsonPath("$.status").value("WAITING_PHONE"))
+                .andExpect(jsonPath("$.canSubmitPhone").value(false));
     }
 }

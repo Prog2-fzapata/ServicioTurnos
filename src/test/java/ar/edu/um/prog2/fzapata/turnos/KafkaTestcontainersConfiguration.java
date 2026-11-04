@@ -23,4 +23,10 @@ public class KafkaTestcontainersConfiguration {
     NewTopic appointmentActionsTopic(@Value("${catedra.kafka.appointment-actions-topic}") String topic) {
         return new NewTopic(topic, 1, (short) 1);
     }
+
+    // El topic donde el relay publica el teléfono
+    @Bean
+    NewTopic appointmentPhoneTopic(@Value("${catedra.kafka.appointment-phone-topic}") String topic) {
+        return new NewTopic(topic, 1, (short) 1);
+    }
 }

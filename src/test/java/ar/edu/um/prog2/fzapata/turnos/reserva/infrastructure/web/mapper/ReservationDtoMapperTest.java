@@ -95,6 +95,28 @@ class ReservationDtoMapperTest {
         assertThat(mapper.toResponse(process(status)).getExpiresAt()).isEqualTo(Instant.parse("2026-10-07T14:44:50Z"));
     }
 
+    // true solo si espera el teléfono y la cátedra ya lo pidió
+    @Test
+    void thePhoneCanBeSubmittedWhenItWaitsForItAndTheCatedraAskedForIt() {
+        ReservationProcess waiting = process(ReservationStatus.WAITING_PHONE);
+
+        assertThat(mapper.toResponse(waiting).isCanSubmitPhone()).isTrue();
+    }
+
+    @Test
+    void thePhoneCannotBeSubmittedBeforeTheCatedraAsked() {
+        ReservationProcess waiting = process(ReservationStatus.WAITING_PHONE);
+        waiting.setRequestEventId(null);
+
+        assertThat(mapper.toResponse(waiting).isCanSubmitPhone()).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = "WAITING_PHONE", mode = EnumSource.Mode.EXCLUDE)
+    void thePhoneCannotBeSubmittedInAnyOtherStatus(ReservationStatus status) {
+        assertThat(mapper.toResponse(process(status)).isCanSubmitPhone()).isFalse();
+    }
+
     @Test
     void mapsNullToNull() {
         assertThat(mapper.toRequest(null, "42")).isNull();

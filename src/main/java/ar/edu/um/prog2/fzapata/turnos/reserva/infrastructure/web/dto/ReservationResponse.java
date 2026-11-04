@@ -31,6 +31,9 @@ public class ReservationResponse {
     private String patientPhone;
     private String failureReason;
     private String cancellationReason;
+    // true: la reserva espera el teléfono y la cátedra ya lo pidió, así que la app puede habilitar el formulario. La app
+    // compara expiresAt con la hora para saber si todavía hay tiempo
+    private boolean canSubmitPhone;
     private Instant createdAt;
     private Instant updatedAt;
 }

@@ -373,9 +373,12 @@ class CatedraEventListenerIntegrationTest {
             return found;
         }).when(reservationProcessRepository).findById(any());
 
-        send("process-1", event("confirmation-1", "AppointmentConfirmed", "process-1", "\"reservationId\":8251"));
+        String payload = event("confirmation-1", "AppointmentConfirmed", "process-1", "\"reservationId\":8251");
+        send("process-1", payload);
         waitUntil("el offset confirmado", () -> offsetReached(before + 1));
 
+        // El mensaje se leyó una sola vez: el reintento fue el del servicio y no una reentrega de Kafka, que lo taparía
+        verify(catedraEventMapper, times(1)).toDomainModel(payload);
         assertThat(row("process-1")).containsEntry("status", "CONFIRMED").containsEntry("reservation_id", 8251L)
                 .containsEntry("version", 2L);
         assertThat(jdbc.sql("SELECT patient_phone FROM reservation_processes").query(String.class).single())

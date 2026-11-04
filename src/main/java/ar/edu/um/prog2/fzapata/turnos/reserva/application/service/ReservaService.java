@@ -1,5 +1,8 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.application.service;
 
+import java.util.List;
+import java.util.function.Supplier;
+
 import org.springframework.stereotype.Service;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
@@ -12,6 +15,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ConflictRetryPolicy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.EventResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneDelivery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -23,7 +27,9 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetAvailabilityUse
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ProcessCatedraEventUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.PublishPendingPhonesUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.SubmitPhoneUseCase;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -37,6 +43,8 @@ public class ReservaService {
     private final GetReservationUseCase getReservationUseCase;
     private final CancelReservationUseCase cancelReservationUseCase;
     private final ProcessCatedraEventUseCase processCatedraEventUseCase;
+    private final SubmitPhoneUseCase submitPhoneUseCase;
+    private final PublishPendingPhonesUseCase publishPendingPhonesUseCase;
     private final ConflictRetryPolicy conflictRetryPolicy;
 
     public Availability getAvailability(AvailabilityQuery query) {
@@ -69,16 +77,31 @@ public class ReservaService {
     }
 
     // Cada intento es una transacción nueva del caso de uso: si la versión del proceso chocó, se deshizo todo y se
-    // repite el evento entero (D84). Es seguro porque un evento ya registrado vuelve como DUPLICATE
-    public EventResult processEvent(CatedraEvent event) {
+    // repite entero (D84). Es seguro porque lo que se deshizo no dejó nada escrito
+    private <T> T retryingOnConflict(Supplier<T> attempt) {
         for (int attemptNumber = 1;; attemptNumber++) {
             try {
-                return processCatedraEventUseCase.processEvent(event);
+                return attempt.get();
             } catch (ReservationConflictException e) {
                 if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
                     throw e;
                 }
             }
         }
+    }
+
+    // Un evento ya registrado vuelve como DUPLICATE, así que repetirlo es seguro
+    public EventResult processEvent(CatedraEvent event) {
+        return retryingOnConflict(() -> processCatedraEventUseCase.processEvent(event));
+    }
+
+    // Una segunda petición que llega después del choque ve la reserva ya en PHONE_QUEUED y responde 409
+    public ReservationProcess submitPhone(Long id, String userId, String phoneNumber) {
+        return retryingOnConflict(() -> submitPhoneUseCase.submitPhone(id, userId, phoneNumber)
+                .orElseThrow(() -> new ReservationProcessNotFoundException(id)));
+    }
+
+    public List<PhoneDelivery> publishPendingPhones() {
+        return publishPendingPhonesUseCase.publishPending();
     }
 }
