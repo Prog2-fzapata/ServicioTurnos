@@ -62,4 +62,21 @@ class CatalogPropertiesTest {
             assertThat(context.getStartupFailure()).hasStackTraceContaining("maxAttempts");
         });
     }
+
+    // Sin techo, CATALOGO_MAX_ATTEMPTS=1000000 sería un bucle casi infinito
+    @Test
+    void theAttemptsHaveACeiling() {
+        runner.withPropertyValues("catalogo.max-attempts=11").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining("maxAttempts");
+        });
+    }
+
+    @Test
+    void theCeilingItselfIsAllowed() {
+        runner.withPropertyValues("catalogo.max-attempts=10").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(CatalogProperties.class).maxAttempts()).isEqualTo(10);
+        });
+    }
 }

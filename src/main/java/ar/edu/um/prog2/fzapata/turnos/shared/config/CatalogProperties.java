@@ -5,6 +5,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -17,8 +18,8 @@ public record CatalogProperties(
         @NotBlank String baseUrl,
         @NotNull Duration connectTimeout,
         @NotNull Duration readTimeout,
-        // Intentos en total, el primero incluido: 1 desactiva los reintentos
-        @Min(1) int maxAttempts,
+        // Intentos en total, el primero incluido: 1 desactiva los reintentos. Tiene techo (RetryLimits)
+        @Min(1) @Max(RetryLimits.MAX_ATTEMPTS) int maxAttempts,
         // Espera antes del primer reintento; cada uno espera el doble del anterior
         @NotNull Duration initialBackoff) {
 }

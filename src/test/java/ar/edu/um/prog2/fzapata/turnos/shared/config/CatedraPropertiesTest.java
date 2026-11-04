@@ -79,4 +79,20 @@ class CatedraPropertiesTest {
 
         assertThat(properties.toString()).doesNotContain("jwt-secreto").contains("http://catedra");
     }
+
+    @Test
+    void theAttemptsHaveACeiling() {
+        runner.withPropertyValues("catedra.max-attempts=11").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining("maxAttempts");
+        });
+    }
+
+    @Test
+    void theCeilingItselfIsAllowed() {
+        runner.withPropertyValues("catedra.max-attempts=10").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(CatedraProperties.class).maxAttempts()).isEqualTo(10);
+        });
+    }
 }
