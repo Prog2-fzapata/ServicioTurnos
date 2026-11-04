@@ -13,7 +13,8 @@ import ar.edu.um.prog2.fzapata.turnos.shared.config.OutboxProperties;
 import lombok.RequiredArgsConstructor;
 
 // El productor tiene acks=all e idempotencia (D12): el ack significa que el broker guardó el mensaje. Si la espera se
-// agota el mensaje puede haber llegado igual; se reenvía con el mismo eventId y la cátedra descarta el duplicado
+// agota el mensaje puede haber llegado igual; se reenvía con el mismo eventId y la cátedra descarta el duplicado. Cada
+// publicación se bloquea como máximo max.block.ms esperando al broker más publishTimeout esperando su ack
 @Component
 @RequiredArgsConstructor
 public class KafkaPhonePublisher implements PhonePublisher {
@@ -31,6 +32,10 @@ public class KafkaPhonePublisher implements PhonePublisher {
             throw new PhonePublishException("Se interrumpió la espera de la confirmación de Kafka", e);
         } catch (ExecutionException | TimeoutException e) {
             throw new PhonePublishException("Kafka no confirmó el mensaje", e);
+        } catch (org.springframework.kafka.KafkaException | org.apache.kafka.common.KafkaException e) {
+            // send() falla de forma síncrona si no consigue los metadatos del broker dentro de max.block.ms. Es una
+            // publicación que no se hizo como cualquier otra: el mensaje queda pendiente y suma un intento
+            throw new PhonePublishException("No se pudo enviar el mensaje a Kafka", e);
         }
     }
 }

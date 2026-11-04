@@ -52,4 +52,31 @@ class ReservationPropertiesTest {
             assertThat(context.getStartupFailure()).hasStackTraceContaining("holdMaxAttempts");
         });
     }
+
+    @Test
+    void theConflictAttemptsHaveACeiling() {
+        runner.withPropertyValues("reservation.conflict-max-attempts=11").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining("conflictMaxAttempts");
+        });
+    }
+
+    // Cada intento de hold es un hold más su confirmación, y cada una reintenta por su cuenta: el techo es menor
+    @Test
+    void theHoldAttemptsHaveALowerCeiling() {
+        runner.withPropertyValues("reservation.hold-max-attempts=6").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining("holdMaxAttempts");
+        });
+    }
+
+    @Test
+    void theCeilingsThemselvesAreAllowed() {
+        runner.withPropertyValues("reservation.conflict-max-attempts=10", "reservation.hold-max-attempts=5")
+                .run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(ReservationProperties.class).conflictMaxAttempts()).isEqualTo(10);
+            assertThat(context.getBean(ReservationProperties.class).holdMaxAttempts()).isEqualTo(5);
+        });
+    }
 }

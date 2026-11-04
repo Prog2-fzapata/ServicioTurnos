@@ -1,5 +1,7 @@
 package ar.edu.um.prog2.fzapata.turnos.shared.web;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,9 +11,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +48,21 @@ class GlobalExceptionHandlerTest {
         @PostMapping("/api/probe/validated")
         String validated(@Valid @RequestBody Payload payload) {
             return payload.name();
+        }
+
+        @GetMapping("/api/probe/database-down")
+        String databaseDown() {
+            throw new DataAccessResourceFailureException("no hay conexión: jdbc:postgresql://secreto:5432/turnos");
+        }
+
+        @GetMapping("/api/probe/transaction-down")
+        String transactionDown() {
+            throw new CannotCreateTransactionException("no se pudo abrir la transacción");
+        }
+
+        @GetMapping("/api/probe/constraint")
+        String constraint() {
+            throw new DuplicateKeyException("clave duplicada en la tabla reservation_processes");
         }
 
         @GetMapping("/api/probe/boom")
@@ -99,5 +119,30 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/api/probe/validated").with(loggedIn()))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    // Sin base el cliente debe poder distinguir un fallo que se arregla esperando de un error propio
+    @Test
+    void aDatabaseThatIsDownIsA503WithoutInternalDetails() throws Exception {
+        mockMvc.perform(get("/api/probe/database-down").with(loggedIn()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DATABASE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.detail").value(not(containsString("secreto"))))
+                .andExpect(jsonPath("$.path").value("/api/probe/database-down"));
+    }
+
+    @Test
+    void aTransactionThatCannotBeOpenedIsAlsoA503() throws Exception {
+        mockMvc.perform(get("/api/probe/transaction-down").with(loggedIn()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DATABASE_UNAVAILABLE"));
+    }
+
+    // Una restricción violada es un error propio, no una base caída
+    @Test
+    void anyOtherDataErrorIsStillA500() throws Exception {
+        mockMvc.perform(get("/api/probe/constraint").with(loggedIn()))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
     }
 }

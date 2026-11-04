@@ -53,6 +53,7 @@ services:
       OUTBOX_RELAY_INTERVAL:
       OUTBOX_RELAY_BATCH_SIZE:
       OUTBOX_PUBLISH_TIMEOUT:
+      OUTBOX_PUBLISH_BLOCK_TIMEOUT:
       STREAM_HEARTBEAT_INTERVAL:
       STREAM_MAX_CONNECTIONS_PER_USER:
       RESERVATION_EXPIRATION_INTERVAL:
@@ -60,6 +61,7 @@ services:
       RESERVATION_EXPIRATION_BATCH_SIZE:
       SCHEDULING_POOL_SIZE:
       RECOVERY_BATCH_SIZE:
+      DB_CONNECTION_TIMEOUT:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:

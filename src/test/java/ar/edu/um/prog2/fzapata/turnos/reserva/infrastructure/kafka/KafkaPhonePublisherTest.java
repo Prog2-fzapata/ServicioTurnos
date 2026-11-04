@@ -67,4 +67,24 @@ class KafkaPhonePublisherTest {
 
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
     }
+
+    // Sin metadatos del broker send() ni siquiera devuelve un futuro: lanza. Tiene que contar como fallo de publicación
+    @Test
+    void ifSendItselfFailsItIsAPublishFailure() {
+        when(kafkaTemplate.send("topic", "process-1", "{json}"))
+                .thenThrow(new org.springframework.kafka.KafkaException("Failed to send"));
+
+        assertThatThrownBy(() -> publisher.publish("topic", "process-1", "{json}"))
+                .isInstanceOf(PhonePublishException.class)
+                .hasCauseInstanceOf(org.springframework.kafka.KafkaException.class);
+    }
+
+    @Test
+    void aKafkaClientErrorOnSendIsAPublishFailureToo() {
+        when(kafkaTemplate.send("topic", "process-1", "{json}"))
+                .thenThrow(new org.apache.kafka.common.KafkaException("productor cerrado"));
+
+        assertThatThrownBy(() -> publisher.publish("topic", "process-1", "{json}"))
+                .isInstanceOf(PhonePublishException.class);
+    }
 }

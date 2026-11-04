@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -11,6 +12,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -68,6 +70,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ProblemDetail> handleAccessDenied(HttpServletRequest request) {
         return problemDetailsFactory.forbidden(request.getRequestURI());
+    }
+
+    // Sin base no se puede atender nada que la necesite. Es un fallo que se arregla esperando, no un error propio:
+    // el cliente debe poder distinguirlo del 500. Cualquier otro error de datos (una restricción, por ejemplo) sigue
+    // siendo un 500
+    @ExceptionHandler({DataAccessResourceFailureException.class, CannotCreateTransactionException.class})
+    public ResponseEntity<ProblemDetail> handleDatabaseUnavailable(Exception ex, HttpServletRequest request) {
+        log.error("La base de datos no está disponible en {}: {}", request.getRequestURI(),
+                ex.getClass().getSimpleName());
+        return problemDetailsFactory.response(HttpStatus.SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE",
+                "El servicio no puede atender el pedido en este momento, intente nuevamente en unos minutos",
+                request.getRequestURI());
     }
 
     @ExceptionHandler(Exception.class)

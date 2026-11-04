@@ -46,21 +46,23 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | --- | --- | --- |
 | `CATALOGO_CONNECT_TIMEOUT` | Espera máxima para conectar con catálogo | `2s` |
 | `CATALOGO_READ_TIMEOUT` | Espera máxima por la respuesta de catálogo | `3s` |
-| `CATALOGO_MAX_ATTEMPTS` | Intentos en total, el primero incluido. `1` desactiva los reintentos. Mínimo 1 | `3` |
+| `CATALOGO_MAX_ATTEMPTS` | Intentos en total, el primero incluido. `1` desactiva los reintentos. Entre 1 y 10 | `3` |
 | `CATALOGO_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `200ms` |
 | `CATEDRA_CONNECT_TIMEOUT` | Espera máxima para conectar con la cátedra | `2s` |
 | `CATEDRA_READ_TIMEOUT` | Espera máxima por la respuesta de la cátedra | `5s` |
-| `CATEDRA_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para las operaciones que se pueden repetir. `1` desactiva los reintentos. Mínimo 1 | `3` |
+| `CATEDRA_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para las operaciones que se pueden repetir. `1` desactiva los reintentos. Entre 1 y 10 | `3` |
 | `CATEDRA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `200ms` |
 | `AVAILABILITY_ZONE` | Zona horaria de atención: en ella se decide qué horarios ya pasaron (la cátedra expresa las horas en hora local) | `America/Argentina/Mendoza` |
 | `AVAILABILITY_MAX_RANGE_DAYS` | Días máximos entre `from` y `to` de la disponibilidad, ambos incluidos. Mínimo 1 | `31` |
-| `RESERVATION_CONFLICT_MAX_ATTEMPTS` | Intentos en total, el primero incluido, cuando dos actualizaciones del mismo proceso de reserva chocan por la versión (bloqueo optimista). `1` desactiva el reintento. Mínimo 1 | `3` |
-| `RESERVATION_HOLD_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para conseguir un hold confirmado: cada intento es un hold más su confirmación. Se repite si se perdió la respuesta del hold y el horario figura libre, o si el hold venció antes de confirmarse. `1` desactiva el reintento. Mínimo 1 | `2` |
-| `CATEDRA_KAFKA_MAX_RETRIES` | Reintentos después del primer intento cuando falla el procesamiento de un evento de Kafka. `0` los desactiva | `3` |
+| `RESERVATION_CONFLICT_MAX_ATTEMPTS` | Intentos en total, el primero incluido, cuando dos actualizaciones del mismo proceso de reserva chocan por la versión (bloqueo optimista). `1` desactiva el reintento. Entre 1 y 10 | `3` |
+| `RESERVATION_HOLD_MAX_ATTEMPTS` | Intentos en total, el primero incluido, para conseguir un hold confirmado: cada intento es un hold más su confirmación. Se repite si se perdió la respuesta del hold y el horario figura libre, o si el hold venció antes de confirmarse. `1` desactiva el reintento. Entre 1 y 5 | `2` |
+| `CATEDRA_KAFKA_MAX_RETRIES` | Reintentos después del primer intento cuando falla el procesamiento de un evento de Kafka. `0` los desactiva. Entre 0 y 10 | `3` |
 | `CATEDRA_KAFKA_INITIAL_BACKOFF` | Espera antes del primer reintento; cada uno espera el doble del anterior | `1s` |
 | `OUTBOX_RELAY_INTERVAL` | Cada cuánto mira el relay del outbox los mensajes pendientes de publicar (el teléfono) | `1s` |
 | `OUTBOX_RELAY_BATCH_SIZE` | Mensajes que toma el relay por vuelta. Mínimo 1 | `50` |
 | `OUTBOX_PUBLISH_TIMEOUT` | Espera máxima por la confirmación de Kafka de un mensaje; si se agota queda pendiente y se reintenta | `10s` |
+| `OUTBOX_PUBLISH_BLOCK_TIMEOUT` | Milisegundos que una publicación puede bloquearse esperando los metadatos del broker (`max.block.ms` del productor); sin broker falla en ese tiempo y el mensaje queda pendiente. Se suma a `OUTBOX_PUBLISH_TIMEOUT` | `5000` |
+| `DB_CONNECTION_TIMEOUT` | Milisegundos que un pedido espera una conexión del pool de la base antes de fallar con `503` | `5000` |
 | `STREAM_HEARTBEAT_INTERVAL` | Cada cuánto el stream de cambios manda el comentario de latido; también es la precisión con que se cierra una conexión cuyo JWT venció | `25s` |
 | `STREAM_MAX_CONNECTIONS_PER_USER` | Conexiones del stream abiertas a la vez por usuario; al superarlo se cierra la más vieja. Mínimo 1 | `5` |
 | `RESERVATION_EXPIRATION_INTERVAL` | Cada cuánto corre la tarea que expira las reservas vencidas (espera entre el fin de una vuelta y el comienzo de la siguiente) | `30s` |
@@ -336,6 +338,63 @@ data:{"id":101,"status":"WAITING_PHONE","expiresAt":"2026-11-04T13:10:00Z","canS
 | --- | --- |
 | `200` `text/event-stream` | La conexión quedó abierta |
 | `401` | Falta el token o no es válido |
+
+## Reintentos, timeouts y degradación
+
+Qué hace el servicio cuando algo de lo que usa no responde. Cada parámetro tiene un valor por defecto y el entorno lo pisa; los de **reintentos tienen además un techo** que se valida al arrancar (el servicio no levanta con `CATALOGO_MAX_ATTEMPTS=1000000` y el error nombra el parámetro).
+
+### Política por dependencia
+
+| Dependencia | Timeout | Intentos | Qué se reintenta | Si se agotan | Qué ve el cliente |
+| --- | --- | --- | --- | --- | --- |
+| **Catálogo** (profesional y cuenta) | conexión 2 s, lectura 3 s | `CATALOGO_MAX_ATTEMPTS` (3, máx. 10), con espera de 200 ms que se duplica | `5xx`, timeout o conexión caída; un `4xx` no | no se hace nada | `503 CATALOG_UNAVAILABLE` |
+| **Cátedra**: ocupaciones, listar, confirmar y cancelar | conexión 2 s, lectura 5 s | `CATEDRA_MAX_ATTEMPTS` (3, máx. 10), misma espera | corte o timeout: repetirlas es seguro | iniciar deja el proceso en `HELD` para el vencimiento o la recuperación | `503 CATEDRA_UNAVAILABLE` |
+| **Cátedra**: crear un hold | igual | los mismos, **solo si nunca se llegó a conectar** | un hold no se repite si el pedido pudo haber salido (no hay idempotencia, D80) | el proceso pasa a `FAILED` | `503 CATEDRA_UNAVAILABLE` |
+| **Hold + confirmación** completos | — | `RESERVATION_HOLD_MAX_ATTEMPTS` (2, máx. 5) | hold perdido con el horario libre, o hold vencido antes de confirmar | `FAILED` o `EXPIRED` | `409`, `503` según el motivo |
+| **Choque de versión** del mismo proceso | — | `RESERVATION_CONFLICT_MAX_ATTEMPTS` (3, máx. 10) | relee el proceso y decide de nuevo | el pedido falla | `500` genérico (caso extremo) |
+| **Kafka, consumidor** | — | `CATEDRA_KAFKA_MAX_RETRIES` (3, máx. 10), espera de 1 s que se duplica | cualquier fallo al procesar un evento | se descarta con un log de error (D70); lo recuperan el vencimiento y la recuperación al arrancar | nada |
+| **Kafka, productor** (teléfono) | bloqueo 5 s (`OUTBOX_PUBLISH_BLOCK_TIMEOUT`) y ack 10 s (`OUTBOX_PUBLISH_TIMEOUT`) | **sin tope**: el relay lo vuelve a intentar en cada vuelta | falta de confirmación | el mensaje queda `PENDING` con un intento más | `202` al enviar; la reserva sigue en `PHONE_QUEUED` hasta que el broker confirma |
+| **Base de datos** | 5 s por conexión (`DB_CONNECTION_TIMEOUT`) | ninguno | — | falla el pedido | `503 DATABASE_UNAVAILABLE` |
+
+El teléfono es la única excepción consciente a «todo reintento tiene tope»: es la garantía del outbox (el mensaje se entrega cuando Kafka vuelva) y topearlo perdería el teléfono del usuario. Está acotado por vuelta, es observable (el contador `attempts` de la fila y un aviso en el log por cada mensaje) y, si Kafka no vuelve, el vencimiento cierra la reserva.
+
+### Todos los bucles tienen cota
+
+| Bucle | Cota |
+| --- | --- |
+| Reintentos HTTP a catálogo y a la cátedra | `CATALOGO_MAX_ATTEMPTS` y `CATEDRA_MAX_ATTEMPTS`, hasta 10 |
+| Intentos de hold con su confirmación | `RESERVATION_HOLD_MAX_ATTEMPTS`, hasta 5 |
+| Reintentos por choque de versión | `RESERVATION_CONFLICT_MAX_ATTEMPTS`, hasta 10 |
+| Reintentos del consumidor de Kafka | `CATEDRA_KAFKA_MAX_RETRIES`, hasta 10 |
+| Relay del outbox | una tanda de `OUTBOX_RELAY_BATCH_SIZE` por vuelta, con espera fija entre vueltas; las vueltas no se solapan |
+| Vencimiento | una tanda de `RESERVATION_EXPIRATION_BATCH_SIZE` por vuelta |
+| Recuperación al arrancar | una sola vez, `RECOVERY_BATCH_SIZE` de cada clase |
+| Latido del stream | una vuelta cada `STREAM_HEARTBEAT_INTERVAL`, sin acumular |
+
+### Cuánto puede tardar
+
+Con los valores por defecto y un servicio que acepta la conexión pero no contesta:
+
+- **Una consulta a catálogo:** hasta 9,6 s (3 lecturas de 3 s y las esperas de 0,2 s y 0,4 s). Si ni conecta, 6,6 s.
+- **Una llamada a la cátedra que se repite** (confirmar, cancelar, listar): hasta 15,6 s. Crear un hold, 6,6 s.
+- **Iniciar una reserva**, cota superior teórica: dos consultas a catálogo (19,2 s) y hasta dos rondas de hold más confirmación (2 × 22,2 s), unos **64 s**. No hay un plazo global: cancelar llamadas en vuelo dejaría estados intermedios, y lo que quede a medias lo resuelven el vencimiento y la recuperación al arrancar. La app debe tener su propio timeout; un pedido que abandona igual termina en el servidor y la reserva aparece en «mis reservas».
+- **Una vuelta del relay con Kafka caído:** cada mensaje falla a los 5 s, así que una tanda completa de 50 tarda hasta unos 4 minutos. Corre en su propio hilo del planificador y no retrasa al latido ni al vencimiento.
+
+### Qué funciona con cada cosa caída
+
+| Operación | Catálogo caído | Cátedra caída | Kafka caído | Base caída |
+| --- | --- | --- | --- | --- |
+| Listar y ver mis reservas | funciona | funciona | funciona | `503` |
+| Stream de cambios | funciona | funciona | funciona | abre, pero no hay cambios que avisar |
+| Enviar el teléfono | funciona | funciona (queda en el outbox) | funciona (queda `PHONE_QUEUED`) | `503` |
+| Cancelar | funciona | `503`, no cambia nada | funciona | `503` |
+| Iniciar una reserva | `503`, no se crea nada | `503`, el intento queda `FAILED` | funciona | `503` |
+| Consultar disponibilidad | `503` | `503` | funciona | funciona (no usa la base) |
+| Eventos de la cátedra | funciona | — | se detienen hasta que vuelva | se reintentan y, agotados, se descartan |
+| Vencimiento | funciona | no toca lo que necesita preguntarle | funciona | la vuelta falla y se repite en la siguiente |
+| Recuperación al arrancar | funciona | no toca lo que necesita preguntarle | funciona | falla y queda para el próximo arranque |
+
+Lo que depende solo de datos propios sigue funcionando: validar el JWT no consulta a nadie y el estado del servicio (`/actuator/health`) no depende de catálogo ni de la cátedra. Lo prueban tests de integración con los dos servicios caídos, con solo catálogo caído y con una base inaccesible.
 
 ## Tests
 
