@@ -1,5 +1,6 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.application.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -17,6 +18,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ExpirationResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PageQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneDelivery;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.RecoveryResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
@@ -30,6 +32,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.GetReservationUseC
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ListReservationsUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.ProcessCatedraEventUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.PublishPendingPhonesUseCase;
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.RecoverReservationsUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.StartReservationUseCase;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.in.SubmitPhoneUseCase;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +51,7 @@ public class ReservaService {
     private final SubmitPhoneUseCase submitPhoneUseCase;
     private final PublishPendingPhonesUseCase publishPendingPhonesUseCase;
     private final ExpireOverdueReservationsUseCase expireOverdueReservationsUseCase;
+    private final RecoverReservationsUseCase recoverReservationsUseCase;
     private final ConflictRetryPolicy conflictRetryPolicy;
 
     public Availability getAvailability(AvailabilityQuery query) {
@@ -110,5 +114,9 @@ public class ReservaService {
 
     public List<ExpirationResult> expireOverdueReservations() {
         return expireOverdueReservationsUseCase.expireOverdue();
+    }
+
+    public List<RecoveryResult> recoverReservations(Instant instanceStartedAt) {
+        return recoverReservationsUseCase.recover(instanceStartedAt);
     }
 }

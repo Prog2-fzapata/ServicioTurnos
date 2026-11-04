@@ -26,6 +26,14 @@ public interface ReservationProcessRepository {
     // del vencimiento más viejo al más nuevo, hasta limit
     List<ReservationProcess> findExpirable(Instant expiredUntil, int limit);
 
+    // HOLD_REQUESTED sin holdId ni reservationProcessId creados antes de createdBefore: el pedido del hold quedó sin
+    // resultado conocido. Del más viejo al más nuevo, hasta limit
+    List<ReservationProcess> findStaleHoldRequests(Instant createdBefore, int limit);
+
+    // Procesos con el teléfono ya encolado o enviado (ReservationStatus.PHONE_SENT), del que hace más que no cambia al
+    // que cambió hace menos, hasta limit
+    List<ReservationProcess> findWithPhoneSent(int limit);
+
     // Crea (sin id) o actualiza. Al actualizar compara la versión con la de la base; si otro la cambió antes, el
     // adapter lanza ReservationConflictException
     ReservationProcess save(ReservationProcess process);

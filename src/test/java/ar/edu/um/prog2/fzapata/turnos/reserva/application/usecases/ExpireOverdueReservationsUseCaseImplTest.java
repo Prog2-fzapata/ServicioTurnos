@@ -71,7 +71,7 @@ class ExpireOverdueReservationsUseCaseImplTest {
     private CatedraApiClient catedra;
 
     private ExpireOverdueReservationsUseCaseImpl useCase() {
-        return new ExpireOverdueReservationsUseCaseImpl(repository, transitions, catedra,
+        return new ExpireOverdueReservationsUseCaseImpl(repository, new CatedraReconciliation(transitions, catedra),
                 new ExpirationPolicy(GRACE, BATCH), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

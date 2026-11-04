@@ -59,6 +59,7 @@ services:
       RESERVATION_EXPIRATION_GRACE:
       RESERVATION_EXPIRATION_BATCH_SIZE:
       SCHEDULING_POOL_SIZE:
+      RECOVERY_BATCH_SIZE:
     # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
     # host.docker.internal no existe sin esto)
     extra_hosts:

@@ -47,7 +47,8 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     // El mínimo que exige la cátedra para el nombre y el apellido del paciente
     private static final int MIN_NAME_LENGTH = 2;
     // Motivos que quedan en el proceso: cortos y estables, sin datos del paciente
-    private static final String HOLD_RESULT_UNKNOWN = "HOLD_RESULT_UNKNOWN";
+    // También lo usa la recuperación al arrancar para los pedidos de hold que quedaron sin resultado
+    static final String HOLD_RESULT_UNKNOWN = "HOLD_RESULT_UNKNOWN";
     private static final String CATEDRA_NOT_REACHED = "CATEDRA_NOT_REACHED";
     private static final String UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
 

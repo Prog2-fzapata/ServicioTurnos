@@ -65,6 +65,19 @@ public class JpaReservationProcessRepositoryAdapter implements ReservationProces
                 .map(reservationProcessMapper::toDomainModel).toList();
     }
 
+    @Override
+    public List<ReservationProcess> findStaleHoldRequests(Instant createdBefore, int limit) {
+        return jpaReservationProcessRepository
+                .findStaleHoldRequests(ReservationStatus.HOLD_REQUESTED, createdBefore, PageRequest.of(0, limit))
+                .stream().map(reservationProcessMapper::toDomainModel).toList();
+    }
+
+    @Override
+    public List<ReservationProcess> findWithPhoneSent(int limit) {
+        return jpaReservationProcessRepository.findByStatuses(ReservationStatus.PHONE_SENT, PageRequest.of(0, limit))
+                .stream().map(reservationProcessMapper::toDomainModel).toList();
+    }
+
     // La versión viaja en el modelo: si en la base ya es otra, JPA lanza el error de bloqueo optimista y acá se
     // traduce a la excepción de la aplicación. saveAndFlush escribe en esta llamada: dentro de una transacción abierta
     // el guardado normal recién escribiría al hacer COMMIT, fuera de este try, y el choque no se traduciría

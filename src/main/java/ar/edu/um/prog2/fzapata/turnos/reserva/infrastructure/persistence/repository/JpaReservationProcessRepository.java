@@ -32,6 +32,21 @@ public interface JpaReservationProcessRepository extends JpaRepository<Reservati
 
     @Query("""
             select r from ReservationProcessEntity r
+            where r.status = :status and r.holdId is null and r.reservationProcessId is null
+              and r.createdAt < :createdBefore
+            order by r.createdAt asc, r.id asc""")
+    List<ReservationProcessEntity> findStaleHoldRequests(@Param("status") ReservationStatus status,
+            @Param("createdBefore") Instant createdBefore, Pageable limit);
+
+    @Query("""
+            select r from ReservationProcessEntity r
+            where r.status in :statuses
+            order by r.updatedAt asc, r.id asc""")
+    List<ReservationProcessEntity> findByStatuses(@Param("statuses") Collection<ReservationStatus> statuses,
+            Pageable limit);
+
+    @Query("""
+            select r from ReservationProcessEntity r
             where r.userId = :userId
               and (:status is null or r.status = :status)
               and (:hideDiscarded = false or r.status not in :discarded)""")
