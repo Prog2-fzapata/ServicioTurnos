@@ -22,6 +22,9 @@ public enum ReservationStatus {
     // tiene (lo resuelve la recuperación al arrancar) y CONFIRMED ya no vence
     public static final List<ReservationStatus> EXPIRABLE = List.of(HELD, WAITING_PHONE, PHONE_QUEUED, PHONE_SUBMITTED);
 
+    // Con el teléfono ya encolado o enviado: la cátedra pudo haberlos confirmado sin que turnos lo sepa todavía
+    public static final List<ReservationStatus> PHONE_SENT = List.of(PHONE_QUEUED, PHONE_SUBMITTED);
+
     public boolean isFinal() {
         return this == EXPIRED || this == FAILED || this == CANCELLED;
     }

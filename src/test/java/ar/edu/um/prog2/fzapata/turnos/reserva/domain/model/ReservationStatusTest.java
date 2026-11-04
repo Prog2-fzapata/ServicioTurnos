@@ -103,4 +103,11 @@ class ReservationStatusTest {
     void onlyTheStatesAfterQueueingThePhoneMayHaveReachedTheCatedra(ReservationStatus status) {
         assertThat(status.phoneMayHaveReachedCatedra()).isEqualTo(status == PHONE_QUEUED || status == PHONE_SUBMITTED);
     }
+
+    @Test
+    void thePhoneSentStatesAreExactlyTheOnesWhereTheCatedraMayHaveConfirmed() {
+        assertThat(ReservationStatus.PHONE_SENT).containsExactlyInAnyOrder(PHONE_QUEUED, PHONE_SUBMITTED);
+        assertThat(Arrays.stream(ReservationStatus.values()).filter(ReservationStatus::phoneMayHaveReachedCatedra))
+                .containsExactlyInAnyOrderElementsOf(ReservationStatus.PHONE_SENT);
+    }
 }
