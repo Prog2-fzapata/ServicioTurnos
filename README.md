@@ -57,6 +57,11 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `OUTBOX_PUBLISH_TIMEOUT` | Espera máxima por la confirmación de Kafka de un mensaje; si se agota queda pendiente y se reintenta | `10s` |
 | `STREAM_HEARTBEAT_INTERVAL` | Cada cuánto el stream de cambios manda el comentario de latido; también es la precisión con que se cierra una conexión cuyo JWT venció | `25s` |
 | `STREAM_MAX_CONNECTIONS_PER_USER` | Conexiones del stream abiertas a la vez por usuario; al superarlo se cierra la más vieja. Mínimo 1 | `5` |
+| `RESERVATION_EXPIRATION_INTERVAL` | Cada cuánto corre la tarea que expira las reservas vencidas (espera entre el fin de una vuelta y el comienzo de la siguiente) | `30s` |
+| `RESERVATION_EXPIRATION_GRACE` | Cuánto después de su vencimiento se expira una reserva: deja llegar el evento de la cátedra que viene en camino. `0s` la expira en cuanto vence | `60s` |
+| `RESERVATION_EXPIRATION_BATCH_SIZE` | Reservas que toma la tarea de vencimiento por vuelta; lo que sobre sigue en la vuelta siguiente. Mínimo 1 | `100` |
+| `SCHEDULING_POOL_SIZE` | Hilos del planificador, uno por tarea programada (relay del outbox, latido del stream y vencimiento); con uno solo, una vuelta lenta retrasaría a las otras | `3` |
+| `RECOVERY_BATCH_SIZE` | Procesos de cada clase (pedidos de hold sin resultado y reservas con el teléfono ya enviado) que revisa la recuperación al levantar el servicio. Mínimo 1 | `100` |
 
 ## Levantar con Docker
 
@@ -270,6 +275,32 @@ La cátedra publica lo que pasa con cada reserva en el topic `CATEDRA_KAFKA_APPO
 - **No retroceden estados:** un evento que el diagrama no permite desde el estado actual (uno tardío, o fuera de orden) se ignora, se registra en el log y no es un error. Los estados finales no cambian.
 - **Se ignoran y se registran** (para no trabar la lectura): un evento de un proceso que no existe, uno de un tipo que no se conoce y uno repetido. Un mensaje que no es un JSON válido, o al que le falta `eventId`, `eventType` o `reservationProcessId`, se descarta sin reintentos.
 - Sin offset guardado para el grupo se empieza por el principio del topic, para no perder lo publicado antes de que el grupo exista.
+
+## Vencimiento de reservas
+
+Una reserva abierta tiene un `expiresAt` (el que informa la cátedra). Si el evento `AppointmentProcessExpired` llega, la reserva pasa a `EXPIRED` por el consumer. Para cuando ese evento se pierde o se atrasa, una **tarea programada** cada `RESERVATION_EXPIRATION_INTERVAL` expira las reservas en `HELD`, `WAITING_PHONE`, `PHONE_QUEUED` o `PHONE_SUBMITTED` cuyo vencimiento pasó hace más que `RESERVATION_EXPIRATION_GRACE`, con el motivo `HOLD_EXPIRED` (el mismo código del evento). El evento y la tarea llevan al mismo estado final y el que llega segundo no cambia nada; el cambio avisa por el stream como cualquier otro.
+
+- **Margen y consulta previa.** Un `EXPIRED` es final: si la confirmación de la cátedra venía en camino, quedaría descartada aunque el turno exista. Por eso hay un margen (60 s) y, antes de expirar una reserva en `PHONE_QUEUED` o `PHONE_SUBMITTED` (las únicas donde el teléfono pudo llegar a la cátedra), se le pregunta con `GET /api/appointments` si ese proceso figura `CONFIRMED`: si es así se repara a `CONFIRMED` con su `reservationId` en vez de expirarla. En `HELD` y `WAITING_PHONE` no se pregunta, porque sin teléfono la cátedra no puede haber confirmado.
+- **Ante la duda no se expira.** Si la cátedra no responde, o devuelve más resultados que la página y el proceso no aparece, la reserva queda para la vuelta siguiente. Tras el primer fallo de la cátedra no se vuelve a consultar en esa vuelta; las reservas que no necesitan consulta se expiran igual.
+- **Acotada.** Cada vuelta toma como máximo `RESERVATION_EXPIRATION_BATCH_SIZE`, de la más vieja a la más nueva, y cada reserva se cierra en su propia operación: un fallo no frena a las demás. No hay una ejecución especial al arrancar: la primera vuelta ya cubre los vencidos que dejó una caída.
+- **Para la app:** entre el `expiresAt` y el cierre pueden pasar de 60 a 90 s en los que la reserva sigue en su estado; la app compara `expiresAt` con la hora. `POST /api/reservations/{id}/phone` ya responde `409 RESERVATION_EXPIRED` en ese lapso.
+- **Hilos.** El planificador de Spring Boot tiene un solo hilo por defecto y lo compartirían el relay, el latido del stream y esta tarea; por eso `SCHEDULING_POOL_SIZE` vale 3. El consumer de Kafka procesa de a un evento, Tomcat atiende un hilo por pedido y no hay tareas asincrónicas propias.
+
+## Recuperación al arrancar
+
+Si el servicio se cae a mitad de una reserva, pueden quedar procesos dudosos que ningún evento va a resolver. Al terminar de arrancar (evento `ApplicationReadyEvent`) corre **una vez** la recuperación, en el hilo de arranque y con el servicio ya atendiendo pedidos. Revisa como máximo `RECOVERY_BATCH_SIZE` procesos de cada clase y cierra cada uno en su propia operación: un fallo no frena a los demás.
+
+| Proceso | Qué pudo pasar | Qué hace la recuperación |
+| --- | --- | --- |
+| `HOLD_REQUESTED` sin `holdId` ni `reservationProcessId` | Se cayó el servicio o se perdió la respuesta del hold: nunca se recibieron los ids. | Pasa a `FAILED` con el motivo `HOLD_RESULT_UNKNOWN` (el mismo de iniciar una reserva). El hold que la cátedra haya creado vence solo. |
+| `PHONE_QUEUED` y `PHONE_SUBMITTED` | El `AppointmentConfirmed` no llegó. | Le pregunta a la cátedra con `GET /api/appointments` (`CONFIRMED`, la fecha del turno y el paciente): si el proceso figura confirmado, se repara a `CONFIRMED` con su `reservationId`; si no, se deja como está. |
+
+- **La guarda del arranque.** El servidor web acepta pedidos antes de que se dispare el evento de arranque, así que un `HOLD_REQUESTED` de un pedido en curso se parecería a uno huérfano. Solo se fallan los creados **antes de que arrancara el contexto de esta instancia**.
+- **Solo con evidencia.** No se cierra nada porque la cátedra no lo tenga confirmado. Si la cátedra no responde, o devuelve más resultados que la página (100) sin que aparezca el proceso, ese proceso no se toca; tras el primer fallo no se vuelve a consultar. Los huérfanos no necesitan a la cátedra y se fallan igual.
+- **Lo que no toca.** `HELD` (el evento `AdditionalInformationRequested` que Kafka reentrega lo pasa a `WAITING_PHONE`, y si no lo expira la tarea de vencimiento), `WAITING_PHONE` (espera al usuario) y `CONFIRMED`.
+- **Con el consumer de Kafka.** El consumer repasa su atraso mientras corre la recuperación. Es seguro: todo pasa por el mismo caso de uso de transiciones, con bloqueo optimista; el que llega segundo ve que ya está hecho.
+- **Si la cátedra está caída al arrancar,** esos procesos quedan como están (no hay reintentos en bucle). La tarea de vencimiento no los expira por error, porque hace la misma consulta antes, y el próximo arranque lo vuelve a intentar.
+- **Mismo mecanismo que el vencimiento.** La consulta «¿la cátedra lo tiene confirmado?» es un componente compartido con la tarea de vencimiento.
 
 ## Cambios en tiempo real (SSE)
 

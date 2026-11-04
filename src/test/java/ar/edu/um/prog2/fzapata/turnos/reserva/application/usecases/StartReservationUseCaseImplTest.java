@@ -113,6 +113,21 @@ class StartReservationUseCaseImplTest {
         }
 
         @Override
+        public List<ReservationProcess> findExpirable(Instant expiredUntil, int limit) {
+            throw new UnsupportedOperationException("Iniciar una reserva no expira reservas");
+        }
+
+        @Override
+        public List<ReservationProcess> findStaleHoldRequests(Instant createdBefore, int limit) {
+            throw new UnsupportedOperationException("Iniciar una reserva no recupera reservas");
+        }
+
+        @Override
+        public List<ReservationProcess> findWithPhoneSent(int limit) {
+            throw new UnsupportedOperationException("Iniciar una reserva no recupera reservas");
+        }
+
+        @Override
         public ReservationProcess save(ReservationProcess process) {
             if (process.getId() == null) {
                 process.setId(ids.incrementAndGet());

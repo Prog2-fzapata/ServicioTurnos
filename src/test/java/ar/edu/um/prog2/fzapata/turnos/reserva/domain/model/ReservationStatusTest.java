@@ -78,4 +78,36 @@ class ReservationStatusTest {
     void theDiscardedAttemptsAreExactlyTheExpiredAndTheFailedOnes() {
         assertThat(ReservationStatus.DISCARDED).containsExactlyInAnyOrder(EXPIRED, FAILED);
     }
+
+    // Solo los abiertos con vencimiento: HOLD_REQUESTED todavía no tiene expiresAt y CONFIRMED ya no vence
+    @Test
+    void theExpirableStatesAreTheOpenOnesThatHaveAnExpiration() {
+        assertThat(ReservationStatus.EXPIRABLE).containsExactlyInAnyOrder(HELD, WAITING_PHONE, PHONE_QUEUED,
+                PHONE_SUBMITTED);
+    }
+
+    // Todo lo que se puede expirar tiene que poder pasar a EXPIRED según el diagrama
+    @ParameterizedTest
+    @MethodSource("expirableStatuses")
+    void everyExpirableStatusCanMoveToExpired(ReservationStatus status) {
+        assertThat(status.canTransitionTo(EXPIRED)).isTrue();
+    }
+
+    static Stream<ReservationStatus> expirableStatuses() {
+        return ReservationStatus.EXPIRABLE.stream();
+    }
+
+    // Desde PHONE_QUEUED el relay puede haber publicado sin anotar el ack: la cátedra pudo confirmar
+    @ParameterizedTest
+    @EnumSource(ReservationStatus.class)
+    void onlyTheStatesAfterQueueingThePhoneMayHaveReachedTheCatedra(ReservationStatus status) {
+        assertThat(status.phoneMayHaveReachedCatedra()).isEqualTo(status == PHONE_QUEUED || status == PHONE_SUBMITTED);
+    }
+
+    @Test
+    void thePhoneSentStatesAreExactlyTheOnesWhereTheCatedraMayHaveConfirmed() {
+        assertThat(ReservationStatus.PHONE_SENT).containsExactlyInAnyOrder(PHONE_QUEUED, PHONE_SUBMITTED);
+        assertThat(Arrays.stream(ReservationStatus.values()).filter(ReservationStatus::phoneMayHaveReachedCatedra))
+                .containsExactlyInAnyOrderElementsOf(ReservationStatus.PHONE_SENT);
+    }
 }

@@ -229,4 +229,126 @@ class ReservationProcessPersistenceIntegrationTest {
             assertThat(applied).allSatisfy(result -> assertThat(result.from().canTransitionTo(result.target())).isTrue());
         }
     }
+
+    // ---------- Procesos a expirar
+
+    private ReservationProcess storedExpiring(ReservationStatus status, Instant expiresAt) {
+        ReservationProcess process = newProcess(status);
+        process.setExpiresAt(expiresAt);
+        return repository.save(process);
+    }
+
+    @Test
+    void findExpirableReturnsOnlyOpenProcessesWithAnExpirationAtOrBeforeTheLimit() {
+        Instant limit = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess held = storedExpiring(ReservationStatus.HELD, limit.minusSeconds(600));
+        ReservationProcess waiting = storedExpiring(ReservationStatus.WAITING_PHONE, limit.minusSeconds(300));
+        ReservationProcess queued = storedExpiring(ReservationStatus.PHONE_QUEUED, limit.minusSeconds(60));
+        ReservationProcess submitted = storedExpiring(ReservationStatus.PHONE_SUBMITTED, limit);
+        // Estos no: todavía no vencieron, no tienen vencimiento, ya están confirmados o ya terminaron
+        storedExpiring(ReservationStatus.HELD, limit.plusSeconds(1));
+        storedExpiring(ReservationStatus.HOLD_REQUESTED, null);
+        storedExpiring(ReservationStatus.HELD, null);
+        storedExpiring(ReservationStatus.CONFIRMED, limit.minusSeconds(600));
+        storedExpiring(ReservationStatus.EXPIRED, limit.minusSeconds(600));
+        storedExpiring(ReservationStatus.FAILED, limit.minusSeconds(600));
+        storedExpiring(ReservationStatus.CANCELLED, limit.minusSeconds(600));
+
+        List<ReservationProcess> found = repository.findExpirable(limit, 100);
+
+        assertThat(found).extracting(ReservationProcess::getId).containsExactly(held.getId(), waiting.getId(),
+                queued.getId(), submitted.getId());
+    }
+
+    @Test
+    void findExpirableGoesFromTheOldestExpirationToTheNewestAndBreaksTiesById() {
+        Instant limit = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess later = storedExpiring(ReservationStatus.HELD, limit.minusSeconds(60));
+        ReservationProcess tiedFirst = storedExpiring(ReservationStatus.HELD, limit.minusSeconds(600));
+        ReservationProcess tiedSecond = storedExpiring(ReservationStatus.WAITING_PHONE, limit.minusSeconds(600));
+
+        assertThat(repository.findExpirable(limit, 100)).extracting(ReservationProcess::getId)
+                .containsExactly(tiedFirst.getId(), tiedSecond.getId(), later.getId());
+    }
+
+    // Una tanda acotada: nunca trae más de lo que la tarea puede cerrar en una vuelta
+    @Test
+    void findExpirableNeverReturnsMoreThanTheLimit() {
+        Instant limit = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess oldest = storedExpiring(ReservationStatus.HELD, limit.minusSeconds(900));
+        ReservationProcess second = storedExpiring(ReservationStatus.HELD, limit.minusSeconds(600));
+        storedExpiring(ReservationStatus.HELD, limit.minusSeconds(300));
+
+        assertThat(repository.findExpirable(limit, 2)).extracting(ReservationProcess::getId)
+                .containsExactly(oldest.getId(), second.getId());
+    }
+
+    @Test
+    void findExpirableWithNothingOverdueIsEmpty() {
+        Instant limit = Instant.parse("2026-11-04T14:00:00Z");
+        storedExpiring(ReservationStatus.HELD, limit.plusSeconds(60));
+
+        assertThat(repository.findExpirable(limit, 100)).isEmpty();
+    }
+
+    // ---------- Procesos dudosos al arrancar
+
+    private ReservationProcess storedAt(ReservationStatus status, Instant createdAt, Instant updatedAt) {
+        ReservationProcess process = newProcess(status);
+        process.setCreatedAt(createdAt);
+        process.setUpdatedAt(updatedAt);
+        return repository.save(process);
+    }
+
+    @Test
+    void findStaleHoldRequestsReturnsOnlyHoldRequestsWithoutIdsCreatedBeforeTheLimit() {
+        Instant started = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess orphan = storedAt(ReservationStatus.HOLD_REQUESTED, started.minusSeconds(600), T0);
+        // Estos no: creado justo al arrancar o después (un pedido en curso), con ids, o en otro estado
+        storedAt(ReservationStatus.HOLD_REQUESTED, started, T0);
+        storedAt(ReservationStatus.HOLD_REQUESTED, started.plusSeconds(5), T0);
+        ReservationProcess withHold = newProcess(ReservationStatus.HOLD_REQUESTED);
+        withHold.setHoldId("hold-1");
+        withHold.setCreatedAt(started.minusSeconds(600));
+        repository.save(withHold);
+        ReservationProcess withProcessId = newProcess(ReservationStatus.HOLD_REQUESTED);
+        withProcessId.setReservationProcessId("process-1");
+        withProcessId.setCreatedAt(started.minusSeconds(600));
+        repository.save(withProcessId);
+        storedAt(ReservationStatus.HELD, started.minusSeconds(600), T0);
+        storedAt(ReservationStatus.FAILED, started.minusSeconds(600), T0);
+
+        assertThat(repository.findStaleHoldRequests(started, 100)).extracting(ReservationProcess::getId)
+                .containsExactly(orphan.getId());
+    }
+
+    @Test
+    void findStaleHoldRequestsGoesFromTheOldestAndNeverReturnsMoreThanTheLimit() {
+        Instant started = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess newest = storedAt(ReservationStatus.HOLD_REQUESTED, started.minusSeconds(60), T0);
+        ReservationProcess oldest = storedAt(ReservationStatus.HOLD_REQUESTED, started.minusSeconds(900), T0);
+        ReservationProcess middle = storedAt(ReservationStatus.HOLD_REQUESTED, started.minusSeconds(300), T0);
+
+        assertThat(repository.findStaleHoldRequests(started, 100)).extracting(ReservationProcess::getId)
+                .containsExactly(oldest.getId(), middle.getId(), newest.getId());
+        assertThat(repository.findStaleHoldRequests(started, 2)).extracting(ReservationProcess::getId)
+                .containsExactly(oldest.getId(), middle.getId());
+    }
+
+    @Test
+    void findWithPhoneSentReturnsOnlyTheQueuedAndSubmittedOnesFromTheOneUnchangedLongest() {
+        Instant base = Instant.parse("2026-11-04T14:00:00Z");
+        ReservationProcess recent = storedAt(ReservationStatus.PHONE_SUBMITTED, T0, base.minusSeconds(60));
+        ReservationProcess oldest = storedAt(ReservationStatus.PHONE_QUEUED, T0, base.minusSeconds(900));
+        for (ReservationStatus other : List.of(ReservationStatus.HOLD_REQUESTED, ReservationStatus.HELD,
+                ReservationStatus.WAITING_PHONE, ReservationStatus.CONFIRMED, ReservationStatus.EXPIRED,
+                ReservationStatus.FAILED, ReservationStatus.CANCELLED)) {
+            storedAt(other, T0, base.minusSeconds(1200));
+        }
+
+        assertThat(repository.findWithPhoneSent(100)).extracting(ReservationProcess::getId)
+                .containsExactly(oldest.getId(), recent.getId());
+        assertThat(repository.findWithPhoneSent(1)).extracting(ReservationProcess::getId)
+                .containsExactly(oldest.getId());
+    }
 }
