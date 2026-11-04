@@ -55,6 +55,8 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `OUTBOX_RELAY_INTERVAL` | Cada cuánto mira el relay del outbox los mensajes pendientes de publicar (el teléfono) | `1s` |
 | `OUTBOX_RELAY_BATCH_SIZE` | Mensajes que toma el relay por vuelta. Mínimo 1 | `50` |
 | `OUTBOX_PUBLISH_TIMEOUT` | Espera máxima por la confirmación de Kafka de un mensaje; si se agota queda pendiente y se reintenta | `10s` |
+| `STREAM_HEARTBEAT_INTERVAL` | Cada cuánto el stream de cambios manda el comentario de latido; también es la precisión con que se cierra una conexión cuyo JWT venció | `25s` |
+| `STREAM_MAX_CONNECTIONS_PER_USER` | Conexiones del stream abiertas a la vez por usuario; al superarlo se cierra la más vieja. Mínimo 1 | `5` |
 
 ## Levantar con Docker
 
@@ -268,6 +270,35 @@ La cátedra publica lo que pasa con cada reserva en el topic `CATEDRA_KAFKA_APPO
 - **No retroceden estados:** un evento que el diagrama no permite desde el estado actual (uno tardío, o fuera de orden) se ignora, se registra en el log y no es un error. Los estados finales no cambian.
 - **Se ignoran y se registran** (para no trabar la lectura): un evento de un proceso que no existe, uno de un tipo que no se conoce y uno repetido. Un mensaje que no es un JSON válido, o al que le falta `eventId`, `eventType` o `reservationProcessId`, se descarta sin reintentos.
 - Sin offset guardado para el grupo se empieza por el principio del topic, para no perder lo publicado antes de que el grupo exista.
+
+## Cambios en tiempo real (SSE)
+
+`GET /api/reservations/stream` abre una conexión que el servidor mantiene abierta y por la que avisa cada cambio de las reservas **del usuario del JWT** (nunca las de otro). Es una optimización: no es la fuente de verdad, así que al conectar o reconectar la app consulta `GET /api/reservations` y refresca.
+
+```bash
+curl -N localhost:8082/api/reservations/stream -H "Authorization: Bearer <id_token>" -H "Accept: text/event-stream"
+```
+
+```
+:ping
+
+event:reservation-updated
+id:101-5
+data:{"id":101,"status":"WAITING_PHONE","expiresAt":"2026-11-04T13:10:00Z","canSubmitPhone":true,"updatedAt":"2026-11-04T13:00:05Z"}
+```
+
+- **Qué avisa:** cada cambio de estado (también los de `HELD` a `WAITING_PHONE`, la confirmación, el vencimiento y la cancelación) y la llegada del pedido de teléfono, que no cambia el estado pero pasa `canSubmitPhone` a `true`. Un evento repetido o un paso que el diagrama rechaza no cambian nada y no avisan.
+- **`data`:** un resumen (`id`, `status`, `expiresAt`, `canSubmitPhone`, `updatedAt`); `expiresAt` es `null` si la reserva terminó. El detalle se pide con `GET /api/reservations/{id}`. El `id` del evento es `{reserva}-{versión}` y crece con cada cambio.
+- **Después del COMMIT:** el aviso sale cuando el cambio ya quedó guardado, así que al recibirlo la consulta lo ve; un cambio que se deshace no avisa.
+- **Sin historia:** un aviso perdido (la app estaba desconectada) no se reenvía y `Last-Event-ID` se ignora; la app reconsulta al reconectar.
+- **Latido:** un comentario `:ping` al conectar (para que el cliente reciba las cabeceras) y cada `STREAM_HEARTBEAT_INTERVAL`. El cliente lo ignora.
+- **JWT vencido:** el servidor cierra el stream en el primer latido posterior al `exp`. Como la cabecera `200` ya se envió, el cierre no puede ser un `401`: la app lo nota porque el stream termina y debe renovar el token antes de reconectar (el servidor tolera 60 s de desfase de reloj, valor por defecto de Spring: con un token vencido hace menos que eso la conexión se acepta y se cierra de nuevo en el siguiente latido).
+- **Límites:** hasta `STREAM_MAX_CONNECTIONS_PER_USER` conexiones por usuario; al abrir una más se cierra la más vieja. Las conexiones viven en memoria de una sola instancia, y al apagar el servicio se cierran todas.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `200` `text/event-stream` | La conexión quedó abierta |
+| `401` | Falta el token o no es válido |
 
 ## Tests
 
