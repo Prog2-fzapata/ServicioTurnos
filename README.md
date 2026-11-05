@@ -396,6 +396,30 @@ Con los valores por defecto y un servicio que acepta la conexión pero no contes
 
 Lo que depende solo de datos propios sigue funcionando: validar el JWT no consulta a nadie y el estado del servicio (`/actuator/health`) no depende de catálogo ni de la cátedra. Lo prueban tests de integración con los dos servicios caídos, con solo catálogo caído y con una base inaccesible.
 
+## Logs
+
+El servicio escribe en la salida estándar (`docker compose logs -f turnos`) con el formato por defecto de Spring Boot, a nivel `INFO`. Cada línea de negocio dice **qué proceso y qué pasó**, y nada más: el id local del proceso, el origen (el evento o la tarea que lo cambió), el estado de origen y el de destino.
+
+| Se registra | Ejemplo |
+| --- | --- |
+| Cada transición y por qué se ignoró | `Evento AppointmentConfirmed <eventId>: el proceso 12 pasó de PHONE_SUBMITTED a CONFIRMED` |
+| Eventos duplicados, de un proceso desconocido o de un tipo que no se trata | `Evento X <eventId>: ya se había procesado, se ignora` |
+| El teléfono que Kafka no confirmó (solo ids y el número de intento, nunca el número) | `Teléfono <eventId>: Kafka no confirmó el mensaje del proceso …, queda pendiente (intento 2)` |
+| Cada vuelta del vencimiento y de la recuperación, con lo que dudó | `Vencimiento: no se pudo comprobar con la cátedra el proceso 12 (…)` |
+| Las respuestas inesperadas de catálogo y de la cátedra, **solo con el status** | `La cátedra respondió 500` |
+| Los errores inesperados, con su traza | `Error inesperado en /api/reservations` |
+
+**Nunca se escribe:** el JWT del usuario, el JWT técnico de la cátedra, el secreto de firma, la contraseña de la base, el teléfono, el nombre del paciente ni el motivo de una cancelación. Cómo se garantiza:
+
+- Los modelos y DTO que llevan el nombre o el teléfono no tienen `toString`, y `CatedraProperties.toString` oculta el JWT, así que un objeto que llegue por error a un log no los imprime.
+- Los clientes registran el status (o el nombre de la clase de la excepción), nunca el cuerpo de la respuesta ni los headers.
+- El manejador de pedidos con la base caída registra el nombre de la clase de la excepción, no su mensaje.
+- Los errores inesperados sí registran la excepción entera (mensaje y traza), porque son los que hay que diagnosticar. El mensaje de una excepción no lo controla el servicio, y por eso el test del criterio compara también las trazas.
+
+No hay contexto por pedido (MDC) ni métricas propias: el id del proceso va en cada línea y alcanza para seguir un flujo. El estado del servicio es `/actuator/health`, y es lo único de `actuator` que se expone.
+
+Lo comprueba `SecretsNotInLogsIntegrationTest`: corre los flujos reales (iniciar, teléfono con y sin confirmación de Kafka, cancelar, errores de catálogo y de la cátedra, el relay y el listener de Kafka con mensajes válidos e inválidos) con un JWT, un teléfono, un nombre y un motivo de prueba reconocibles, captura todo lo que se escribe en el log y verifica que ninguno aparece. `DatabaseDownIntegrationTest` hace lo mismo con la base caída y su contraseña.
+
 ## Tests
 
 ```bash
