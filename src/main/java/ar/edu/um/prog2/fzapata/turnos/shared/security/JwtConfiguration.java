@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
 // Turnos solo valida tokens: no hay encoder, porque quien los firma es catálogo
@@ -32,10 +32,16 @@ public class JwtConfiguration {
     @Bean
     JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey).macAlgorithm(ALGORITHM).build();
-        // Los validadores por defecto controlan vigencia (exp, nbf); se suman los claims obligatorios
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefault(), new RequiredClaimsValidator()));
+                timestampValidatorRequiringExpiry(), new RequiredClaimsValidator()));
         return decoder;
+    }
+
+    // El validador por defecto controla la vigencia (exp, nbf) pero acepta un token sin exp, que no vencería nunca
+    private static JwtTimestampValidator timestampValidatorRequiringExpiry() {
+        JwtTimestampValidator validator = new JwtTimestampValidator();
+        validator.setAllowEmptyExpiryClaim(false);
+        return validator;
     }
 
     // Falla al arrancar, con un mensaje claro, en vez de aceptar tokens con una clave débil
