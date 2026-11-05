@@ -310,3 +310,12 @@ Registro de las decisiones técnicas de este servicio: contexto, decisión, alte
   - Registrar solo el nombre de la clase de toda excepción: ocultaría la traza justo de los errores que no se esperaban y que hay que diagnosticar.
   - Probar cada logger por separado: es lo que ya había, y no detecta que otra clase escriba el dato por su cuenta.
 - **Consecuencias:** agregar un log nuevo que escriba un dato sensible hace fallar el test si el dato pasa por alguno de los flujos probados. No cubre los flujos que no se corren (el vencimiento, la recuperación y el latido del stream, que tienen sus propios tests de logger y escriben solo ids) ni un dato que llegue en el mensaje de una excepción que el test no provoque. Un dato personal nuevo se cubre sumando su valor a la lista de valores reconocibles del test.
+
+## 20. El claim `exp` del JWT es obligatorio
+
+- **Contexto:** el validador por defecto de Spring Security (`JwtValidators.createDefault()`, que es un `JwtTimestampValidator`) acepta un token bien firmado que no trae `exp`, y ese token no vence nunca. Turnos solo exigía `uid` y `auth` además. Se comprobó con un test: un token firmado con la clave correcta, con `uid` y `auth` y sin `exp`, obtenía `200`. Hoy no era explotable (catálogo siempre escribe `exp` y fabricar un token exige conocer `JWT_SECRET`), pero un token que no vence no debería poder ser válido en ningún caso.
+- **Decisión:** el decodificador usa un `JwtTimestampValidator` con `setAllowEmptyExpiryClaim(false)` en lugar del validador por defecto. Un token sin `exp` recibe el mismo `401` `application/problem+json` que uno vencido, sin revelar el motivo. `createDefault()` no agregaba otra validación, así que no se pierde ninguna. `RequiredClaimsValidator` no cambia.
+- **Alternativas descartadas:**
+  - Agregar `exp` a los claims de `RequiredClaimsValidator`: es un cambio de una línea, pero solo serviría en turnos, porque catálogo no tiene ese validador. Corregir el validador de vigencia es el mismo cambio en los dos servicios.
+  - Dejarlo y documentarlo: el riesgo es bajo, pero el arreglo cuesta una línea y un test.
+- **Consecuencias:** la rama de `ReservationStreamRegistry` que trata un `exp` nulo («esa conexión no se cierra por vencimiento») ya no puede ocurrir con un token real; queda como defensa, y los tests la usan con `jwt()` simulado, que no pasa por el decodificador.
