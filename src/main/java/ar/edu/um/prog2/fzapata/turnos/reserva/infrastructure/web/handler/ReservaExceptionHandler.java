@@ -17,6 +17,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PhoneWindowE
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationConflictException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationNotCancellableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
@@ -24,8 +25,10 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavaila
 import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 // Se consulta antes que el handler compartido, que atrapa cualquier Exception
+@Slf4j
 @RestControllerAdvice(basePackages = "ar.edu.um.prog2.fzapata.turnos.reserva")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RequiredArgsConstructor
@@ -113,6 +116,16 @@ public class ReservaExceptionHandler {
     public ResponseEntity<ProblemDetail> handleInvalidReservationState(HttpServletRequest request) {
         return problemDetailsFactory.response(HttpStatus.CONFLICT, "INVALID_RESERVATION_STATE",
                 "La reserva no puede recibir el teléfono en su estado actual", request.getRequestURI());
+    }
+
+    // Otra operación cambió la reserva más veces de las que se reintenta (A33). El pedido puede haber tenido efecto
+    // (cancelar ya llegó a la cátedra y el evento ajusta el estado local): el cliente consulta antes de repetirlo
+    @ExceptionHandler(ReservationConflictException.class)
+    public ResponseEntity<ProblemDetail> handleReservationConflict(HttpServletRequest request) {
+        log.warn("Choque de versión agotado en {}", request.getRequestURI());
+        return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_CONFLICT",
+                "La reserva fue modificada por otra operación, consulte su estado antes de repetir el pedido",
+                request.getRequestURI());
     }
 
     @ExceptionHandler(PhoneWindowExpiredException.class)
