@@ -11,8 +11,8 @@ public class ReservationUpdateMapper {
     public ReservationUpdate toUpdate(ReservationProcess process) {
         if (process == null) return null;
         return new ReservationUpdate(process.getId(), process.getStatus(),
-                // Igual que en Reservation: el vencimiento solo tiene sentido mientras el proceso sigue abierto
-                process.getStatus().isFinal() ? null : process.getExpiresAt(),
+                // Igual que en Reservation: el vencimiento solo tiene sentido mientras el proceso puede vencer
+                process.getStatus().isExpirable() ? process.getExpiresAt() : null,
                 PhoneSubmissionRules.canSubmit(process), process.getUpdatedAt());
     }
 

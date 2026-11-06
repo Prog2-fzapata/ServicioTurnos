@@ -43,8 +43,9 @@ public class ReservationDtoMapper {
                 .appointmentDate(process.getAppointmentDate())
                 .startTime(process.getStartTime())
                 .endTime(process.getEndTime())
-                // El vencimiento solo tiene sentido mientras el proceso sigue abierto
-                .expiresAt(process.getStatus().isFinal() ? null : process.getExpiresAt())
+                // El vencimiento solo tiene sentido mientras el proceso puede vencer: no en uno terminado ni en uno
+                // confirmado
+                .expiresAt(process.getStatus().isExpirable() ? process.getExpiresAt() : null)
                 .patientPhone(process.getPatientPhone())
                 .failureReason(process.getFailureReason())
                 .cancellationReason(process.getCancellationReason())
