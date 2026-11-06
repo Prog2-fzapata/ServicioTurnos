@@ -317,19 +317,17 @@ class CatedraApiClientAdapterTest {
     // ---------- Listar
 
     @Test
-    void asksForTheAppointmentsWithEveryFilterAndThePage() {
+    void asksForTheAppointmentsOfAPatientByStatusAndPageWithoutDateFilters() {
         server.thenRespond(status(200, "[]", Map.of("X-Total-Count", "0")));
 
         withAdapter(adapter -> {
-            adapter.findAppointments(new AppointmentQuery("user-42", AppointmentStatus.CONFIRMED, DAY,
-                    DAY.plusDays(30)), 2, 20);
+            adapter.findAppointments(new AppointmentQuery("user-42", AppointmentStatus.CONFIRMED), 2, 20);
 
             FakeHttpServer.Request request = server.firstRequest();
             assertThat(request.method()).isEqualTo("GET");
             assertThat(request.rawPath()).isEqualTo("/api/appointments");
-            assertThat(request.rawQuery()).contains("status=CONFIRMED").contains("from=2026-09-14")
-                    .contains("to=2026-10-14").contains("externalPatientId=user-42").contains("page=2")
-                    .contains("size=20");
+            // Sin from ni to: la cátedra responde 500 a esos filtros (A34)
+            assertThat(request.rawQuery()).isEqualTo("status=CONFIRMED&externalPatientId=user-42&page=2&size=20");
         });
     }
 
@@ -338,7 +336,7 @@ class CatedraApiClientAdapterTest {
         server.thenRespond(status(200, "[]", Map.of("X-Total-Count", "0")));
 
         withAdapter(adapter -> {
-            adapter.findAppointments(new AppointmentQuery(null, null, null, null), 0, 50);
+            adapter.findAppointments(new AppointmentQuery(null, null), 0, 50);
 
             assertThat(server.firstRequest().rawQuery()).isEqualTo("page=0&size=50");
         });
@@ -349,7 +347,7 @@ class CatedraApiClientAdapterTest {
         server.thenRespond(status(200, "[" + APPOINTMENT_JSON + "]", Map.of("X-Total-Count", "35")));
 
         withAdapter(adapter -> {
-            AppointmentPage page = adapter.findAppointments(new AppointmentQuery("user-42", null, null, null), 0, 20);
+            AppointmentPage page = adapter.findAppointments(new AppointmentQuery("user-42", null), 0, 20);
 
             assertThat(page.totalElements()).isEqualTo(35);
             assertThat(page.content()).hasSize(1);
@@ -380,7 +378,7 @@ class CatedraApiClientAdapterTest {
         server.thenRespond(status(200, "[]"));
 
         withAdapter(adapter -> assertThatThrownBy(
-                () -> adapter.findAppointments(new AppointmentQuery(null, null, null, null), 0, 20))
+                () -> adapter.findAppointments(new AppointmentQuery(null, null), 0, 20))
                 .isInstanceOf(CatedraResponseException.class));
     }
 
@@ -389,7 +387,7 @@ class CatedraApiClientAdapterTest {
         server.thenRespond(status(200, "[]", Map.of("X-Total-Count", "muchos")));
 
         withAdapter(adapter -> assertThatThrownBy(
-                () -> adapter.findAppointments(new AppointmentQuery(null, null, null, null), 0, 20))
+                () -> adapter.findAppointments(new AppointmentQuery(null, null), 0, 20))
                 .isInstanceOf(CatedraResponseException.class));
     }
 
@@ -533,7 +531,7 @@ class CatedraApiClientAdapterTest {
             adapter.findOccupancies(15L, DAY, DAY);
             createHold(adapter);
             adapter.confirmHold("hold-1", "user-42", "Juan", "Perez");
-            adapter.findAppointments(new AppointmentQuery(null, null, null, null), 0, 20);
+            adapter.findAppointments(new AppointmentQuery(null, null), 0, 20);
             adapter.cancelAppointment("process-1", null);
 
             assertThat(server.requestCount()).isEqualTo(5);

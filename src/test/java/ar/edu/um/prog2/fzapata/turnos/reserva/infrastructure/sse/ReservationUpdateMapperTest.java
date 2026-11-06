@@ -31,11 +31,12 @@ class ReservationUpdateMapperTest {
                 UPDATED_AT));
     }
 
-    // Igual que en Reservation: terminado el proceso, el vencimiento ya no significa nada
+    // Igual que en Reservation: terminado o confirmado el proceso, el vencimiento ya no significa nada (A35)
     @ParameterizedTest
-    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"})
-    void aFinalProcessHasNoExpiration(ReservationStatus finalStatus) {
-        assertThat(mapper.toUpdate(process(finalStatus)).expiresAt()).isNull();
+    @EnumSource(value = ReservationStatus.class, names = {"HELD", "WAITING_PHONE", "PHONE_QUEUED", "PHONE_SUBMITTED"},
+            mode = EnumSource.Mode.EXCLUDE)
+    void aProcessThatCannotExpireHasNoExpiration(ReservationStatus status) {
+        assertThat(mapper.toUpdate(process(status)).expiresAt()).isNull();
     }
 
     @Test

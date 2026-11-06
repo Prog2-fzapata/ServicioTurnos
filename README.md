@@ -202,6 +202,7 @@ Si se pierde la respuesta del hold, no se repite ese pedido (la cátedra no tien
 | `404` `PROFESSIONAL_NOT_FOUND` | Catálogo no conoce al profesional |
 | `409` `SLOT_UNAVAILABLE` | El horario está ocupado (nunca se toma como «es mi hold») |
 | `409` `RESERVATION_EXPIRED` | El hold venció antes de confirmarse y no se consiguió otro dentro de los intentos |
+| `409` `RESERVATION_CONFLICT` | Otra operación modificó la reserva más veces de las que se reintenta: se consulta su estado antes de repetir el pedido |
 | `503` `CATALOG_UNAVAILABLE` / `CATEDRA_UNAVAILABLE` | Alguno de los dos servicios no responde |
 
 ## Consultar y cancelar reservas
@@ -224,6 +225,7 @@ curl -X POST localhost:8082/api/reservations/101/cancel -H "Authorization: Beare
 | `400` `VALIDATION_ERROR` | `status` desconocido, o motivo de más de 500 caracteres |
 | `404` `RESERVATION_NOT_FOUND` | No existe o es de otro usuario |
 | `409` `RESERVATION_NOT_CANCELLABLE` | La reserva no está confirmada, o la cátedra no permite cancelarla |
+| `409` `RESERVATION_CONFLICT` | Otra operación modificó la reserva más veces de las que se reintenta. La cátedra pudo haber cancelado ya: se consulta el estado antes de repetir (el evento de la cátedra ajusta el estado local) |
 | `503` `CATEDRA_UNAVAILABLE` | La cátedra no responde al cancelar |
 
 ## Máquina de estados de la reserva
@@ -263,6 +265,7 @@ Responde `202` con la reserva en `PHONE_QUEUED`. El resultado final (confirmada 
 | `404` `RESERVATION_NOT_FOUND` | No existe o es de otro usuario |
 | `409` `INVALID_RESERVATION_STATE` | La reserva no espera el teléfono, la cátedra todavía no lo pidió, o ya se envió uno |
 | `409` `RESERVATION_EXPIRED` | Pasó el vencimiento de la reserva |
+| `409` `RESERVATION_CONFLICT` | Otra operación modificó la reserva más veces de las que se reintenta: se consulta su estado antes de repetir el pedido |
 
 ## Eventos de la cátedra (Kafka)
 
@@ -301,7 +304,7 @@ Si el servicio se cae a mitad de una reserva, pueden quedar procesos dudosos que
 | Proceso | Qué pudo pasar | Qué hace la recuperación |
 | --- | --- | --- |
 | `HOLD_REQUESTED` sin `holdId` ni `reservationProcessId` | Se cayó el servicio o se perdió la respuesta del hold: nunca se recibieron los ids. | Pasa a `FAILED` con el motivo `HOLD_RESULT_UNKNOWN` (el mismo de iniciar una reserva). El hold que la cátedra haya creado vence solo. |
-| `PHONE_QUEUED` y `PHONE_SUBMITTED` | El `AppointmentConfirmed` no llegó. | Le pregunta a la cátedra con `GET /api/appointments` (`CONFIRMED`, la fecha del turno y el paciente): si el proceso figura confirmado, se repara a `CONFIRMED` con su `reservationId`; si no, se deja como está. |
+| `PHONE_QUEUED` y `PHONE_SUBMITTED` | El `AppointmentConfirmed` no llegó. | Le pregunta a la cátedra con `GET /api/appointments` (`CONFIRMED` del paciente, sin filtrar por fecha porque la cátedra responde `500` a `from` y a `to`): si el proceso figura confirmado, se repara a `CONFIRMED` con su `reservationId`; si no, se deja como está. |
 
 - **La guarda del arranque.** El servidor web acepta pedidos antes de que se dispare el evento de arranque, así que un `HOLD_REQUESTED` de un pedido en curso se parecería a uno huérfano. Solo se fallan los creados **antes de que arrancara el contexto de esta instancia**.
 - **Solo con evidencia.** No se cierra nada porque la cátedra no lo tenga confirmado. Si la cátedra no responde, o devuelve más resultados que la página (100) sin que aparezca el proceso, ese proceso no se toca; tras el primer fallo no se vuelve a consultar. Los huérfanos no necesitan a la cátedra y se fallan igual.
@@ -327,7 +330,7 @@ data:{"id":101,"status":"WAITING_PHONE","expiresAt":"2026-11-04T13:10:00Z","canS
 ```
 
 - **Qué avisa:** cada cambio de estado (también los de `HELD` a `WAITING_PHONE`, la confirmación, el vencimiento y la cancelación) y la llegada del pedido de teléfono, que no cambia el estado pero pasa `canSubmitPhone` a `true`. Un evento repetido o un paso que el diagrama rechaza no cambian nada y no avisan.
-- **`data`:** un resumen (`id`, `status`, `expiresAt`, `canSubmitPhone`, `updatedAt`); `expiresAt` es `null` si la reserva terminó. El detalle se pide con `GET /api/reservations/{id}`. El `id` del evento es `{reserva}-{versión}` y crece con cada cambio.
+- **`data`:** un resumen (`id`, `status`, `expiresAt`, `canSubmitPhone`, `updatedAt`); `expiresAt` es `null` si la reserva ya no puede vencer (terminada o confirmada). El detalle se pide con `GET /api/reservations/{id}`. El `id` del evento es `{reserva}-{versión}` y crece con cada cambio.
 - **Después del COMMIT:** el aviso sale cuando el cambio ya quedó guardado, así que al recibirlo la consulta lo ve; un cambio que se deshace no avisa.
 - **Sin historia:** un aviso perdido (la app estaba desconectada) no se reenvía y `Last-Event-ID` se ignora; la app reconsulta al reconectar.
 - **Latido:** un comentario `:ping` al conectar (para que el cliente reciba las cabeceras) y cada `STREAM_HEARTBEAT_INTERVAL`. El cliente lo ignora.
@@ -351,7 +354,7 @@ Qué hace el servicio cuando algo de lo que usa no responde. Cada parámetro tie
 | **Cátedra**: ocupaciones, listar, confirmar y cancelar | conexión 2 s, lectura 5 s | `CATEDRA_MAX_ATTEMPTS` (3, máx. 10), misma espera | corte o timeout: repetirlas es seguro | iniciar deja el proceso en `HELD` para el vencimiento o la recuperación | `503 CATEDRA_UNAVAILABLE` |
 | **Cátedra**: crear un hold | igual | los mismos, **solo si nunca se llegó a conectar** | un hold no se repite si el pedido pudo haber salido (no hay idempotencia, D80) | el proceso pasa a `FAILED` | `503 CATEDRA_UNAVAILABLE` |
 | **Hold + confirmación** completos | — | `RESERVATION_HOLD_MAX_ATTEMPTS` (2, máx. 5) | hold perdido con el horario libre, o hold vencido antes de confirmar | `FAILED` o `EXPIRED` | `409`, `503` según el motivo |
-| **Choque de versión** del mismo proceso | — | `RESERVATION_CONFLICT_MAX_ATTEMPTS` (3, máx. 10) | relee el proceso y decide de nuevo | el pedido falla | `500` genérico (caso extremo) |
+| **Choque de versión** del mismo proceso | — | `RESERVATION_CONFLICT_MAX_ATTEMPTS` (3, máx. 10) | relee el proceso y decide de nuevo | el pedido falla | `409` `RESERVATION_CONFLICT` (caso extremo) |
 | **Kafka, consumidor** | — | `CATEDRA_KAFKA_MAX_RETRIES` (3, máx. 10), espera de 1 s que se duplica | cualquier fallo al procesar un evento | se descarta con un log de error (D70); lo recuperan el vencimiento y la recuperación al arrancar | nada |
 | **Kafka, productor** (teléfono) | bloqueo 5 s (`OUTBOX_PUBLISH_BLOCK_TIMEOUT`) y ack 10 s (`OUTBOX_PUBLISH_TIMEOUT`) | **sin tope**: el relay lo vuelve a intentar en cada vuelta | falta de confirmación | el mensaje queda `PENDING` con un intento más | `202` al enviar; la reserva sigue en `PHONE_QUEUED` hasta que el broker confirma |
 | **Base de datos** | 5 s por conexión (`DB_CONNECTION_TIMEOUT`) | ninguno | — | falla el pedido | `503 DATABASE_UNAVAILABLE` |

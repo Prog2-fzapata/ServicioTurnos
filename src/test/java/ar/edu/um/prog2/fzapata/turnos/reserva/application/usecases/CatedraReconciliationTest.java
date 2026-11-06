@@ -84,12 +84,12 @@ class CatedraReconciliationTest {
     }
 
     @Test
-    void asksForTheConfirmedAppointmentsOfThatPatientOnThatDay() {
+    void asksForTheConfirmedAppointmentsOfThatPatientWithoutFilteringByDate() {
         catedraAnswers(List.of(), 0);
 
         reconciliation().askIfConfirmed(process());
 
-        verify(catedra).findAppointments(new AppointmentQuery("42", AppointmentStatus.CONFIRMED, DATE, DATE), 0, 100);
+        verify(catedra).findAppointments(new AppointmentQuery("42", AppointmentStatus.CONFIRMED), 0, 100);
     }
 
     @Test

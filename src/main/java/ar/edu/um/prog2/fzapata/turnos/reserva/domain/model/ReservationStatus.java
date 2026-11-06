@@ -29,6 +29,12 @@ public enum ReservationStatus {
         return this == EXPIRED || this == FAILED || this == CANCELLED;
     }
 
+    // Solo en estos estados el vencimiento significa algo para quien consulta: en CONFIRMED el del hold ya no importa
+    // aunque el proceso no sea final (todavía puede cancelarse)
+    public boolean isExpirable() {
+        return EXPIRABLE.contains(this);
+    }
+
     // Desde PHONE_QUEUED el teléfono pudo haber llegado a la cátedra (el relay publica antes de anotar el ack), así que
     // ella pudo confirmar sin que turnos lo sepa todavía. Antes de ese punto no tiene con qué confirmar
     public boolean phoneMayHaveReachedCatedra() {

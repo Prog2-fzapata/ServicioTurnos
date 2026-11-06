@@ -86,6 +86,19 @@ class ReservationStatusTest {
                 PHONE_SUBMITTED);
     }
 
+    // isExpirable es la misma lista de EXPIRABLE: CONFIRMED no es final pero ya no vence
+    @ParameterizedTest
+    @EnumSource(ReservationStatus.class)
+    void isExpirableIsTrueExactlyForTheExpirableStates(ReservationStatus status) {
+        assertThat(status.isExpirable()).isEqualTo(ReservationStatus.EXPIRABLE.contains(status));
+    }
+
+    @Test
+    void aConfirmedReservationIsNotFinalButItDoesNotExpire() {
+        assertThat(CONFIRMED.isFinal()).isFalse();
+        assertThat(CONFIRMED.isExpirable()).isFalse();
+    }
+
     // Todo lo que se puede expirar tiene que poder pasar a EXPIRED según el diagrama
     @ParameterizedTest
     @MethodSource("expirableStatuses")
