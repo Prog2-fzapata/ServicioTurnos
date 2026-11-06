@@ -28,7 +28,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 class CatedraReconciliation {
 
-    // Un paciente tiene muy pocos turnos confirmados en un mismo día: una página alcanza. Si no alcanzara no se actúa
+    // Se piden todos los turnos confirmados del paciente, sin filtrar por fecha (la cátedra responde 500 a from y a to,
+    // A34): un paciente tiene pocos y una página alcanza. Si no alcanzara no se actúa
     private static final int CONFIRMED_PAGE_SIZE = 100;
 
     // CONFIRMED: la cátedra lo tiene confirmado. NOT_CONFIRMED: respondió completo y no figura. INCOMPLETE: hay más
@@ -57,9 +58,8 @@ class CatedraReconciliation {
     // Ante la duda no se actúa: un EXPIRED es final y descartaría una confirmación que la cátedra sí tiene
     Answer askIfConfirmed(ReservationProcess process) {
         try {
-            AppointmentPage page = catedraApiClient.findAppointments(new AppointmentQuery(process.getUserId(),
-                    AppointmentStatus.CONFIRMED, process.getAppointmentDate(), process.getAppointmentDate()), 0,
-                    CONFIRMED_PAGE_SIZE);
+            AppointmentPage page = catedraApiClient.findAppointments(
+                    new AppointmentQuery(process.getUserId(), AppointmentStatus.CONFIRMED), 0, CONFIRMED_PAGE_SIZE);
             Optional<CatedraAppointment> match = page.content().stream()
                     .filter(appointment -> process.getReservationProcessId() != null
                             && process.getReservationProcessId().equals(appointment.getReservationProcessId()))
