@@ -69,7 +69,10 @@ class SecurityRejectionTest {
 
     private String token(SecretKey key, MacAlgorithm algorithm, Instant issuedAt, Instant expiresAt,
             boolean withUid, boolean withAuthorities) {
-        JwtClaimsSet.Builder claims = JwtClaimsSet.builder().subject("maria").issuedAt(issuedAt).expiresAt(expiresAt);
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder().subject("maria").issuedAt(issuedAt);
+        if (expiresAt != null) {
+            claims.expiresAt(expiresAt);
+        }
         if (withUid) {
             claims.claim(JwtClaims.USER_ID, 42L);
         }
@@ -160,6 +163,13 @@ class SecurityRejectionTest {
 
         expectUnauthorizedProblem(callWithBearer(token(jwtSecretKey, MacAlgorithm.HS512, now,
                 now.plus(1, ChronoUnit.HOURS), true, false)));
+    }
+
+    // Bien firmado y con uid y auth, pero sin exp: no vencería nunca, así que no se acepta (A26)
+    @Test
+    void tokenWithoutExpiryIsRejectedWithProblemJson() throws Exception {
+        expectUnauthorizedProblem(callWithBearer(token(jwtSecretKey, MacAlgorithm.HS512, Instant.now(), null,
+                true, true)));
     }
 
     @Test

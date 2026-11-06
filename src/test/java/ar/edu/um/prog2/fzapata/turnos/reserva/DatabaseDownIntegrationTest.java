@@ -10,8 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -19,6 +21,10 @@ import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import lombok.RequiredArgsConstructor;
 
 // Una base de datos que de verdad no responde (un puerto cerrado), sin Testcontainers: el servicio arranca igual y
@@ -26,7 +32,7 @@ import lombok.RequiredArgsConstructor;
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:postgresql://localhost:9/turnos",
         "spring.datasource.username=nadie",
-        "spring.datasource.password=nada",
+        "spring.datasource.password=" + DatabaseDownIntegrationTest.DATABASE_PASSWORD,
         // Que el contexto arranque sin base: sin migraciones, sin leer el esquema y sin exigir conexión al crear el pool
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=none",
@@ -40,9 +46,32 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 class DatabaseDownIntegrationTest {
 
+    static final String DATABASE_PASSWORD = "DB-PASSWORD-SENTINEL-5e2d";
+
     private static final Duration FAST = Duration.ofSeconds(5);
 
     private final MockMvc mockMvc;
+
+    // Todo lo que se escribe mientras corre la acción: mensaje y traza de cada excepción
+    private List<String> capturingTheLog(ThrowingAction action) throws Exception {
+        Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        rootLogger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            rootLogger.detachAppender(appender);
+            appender.stop();
+        }
+        return List.copyOf(appender.list).stream().map(event -> event.getFormattedMessage()
+                + (event.getThrowableProxy() == null ? "" : "\n" + ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+    }
+
+    private interface ThrowingAction {
+        void run() throws Exception;
+    }
 
     private ResultActions asUser(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
             throws Exception {
@@ -69,6 +98,19 @@ class DatabaseDownIntegrationTest {
     void sendingThePhoneAnswers503() throws Exception {
         expectDatabaseUnavailable(asUser(post("/api/reservations/1/phone").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"phoneNumber\": \"+5492615551234\"}")));
+    }
+
+    // El log de la caída dice qué falló, pero no la contraseña de la base, el JWT del usuario ni el teléfono del pedido
+    @Test
+    void theLogOfTheOutageHasNeitherThePasswordNorTheJwtNorThePhone() throws Exception {
+        List<String> logged = capturingTheLog(() -> expectDatabaseUnavailable(mockMvc.perform(
+                post("/api/reservations/1/phone").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phoneNumber\": \"+54 9 261 615-9550\"}")
+                        .with(jwt().jwt(token -> token.tokenValue("USER-JWT-SENTINEL-4f9a1c").claim("uid", "42"))))));
+
+        assertThat(logged).anyMatch(line -> line.contains("La base de datos no está disponible"));
+        String everything = String.join("\n", logged);
+        assertThat(everything).doesNotContain(DATABASE_PASSWORD, "USER-JWT-SENTINEL-4f9a1c", "615-9550", "6159550");
     }
 
     // Sin conexión disponible falla en el tiempo del pool (500 ms acá) y no a los 30 s por defecto
