@@ -19,6 +19,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -181,9 +182,13 @@ class SecretsNotInLogsIntegrationTest {
         ownLogger.setLevel(previousOwnLevel);
     }
 
+    // Todo lo que una línea escribe: el mensaje, los campos (los que salen como campos del JSON), el MDC y la traza
     private static String render(ILoggingEvent event) {
+        String fields = event.getKeyValuePairs() == null ? "" : event.getKeyValuePairs().stream()
+                .map(pair -> pair.key + "=" + pair.value).collect(Collectors.joining(" "));
         String trace = event.getThrowableProxy() == null ? "" : "\n" + ThrowableProxyUtil.asString(event.getThrowableProxy());
-        return event.getLevel() + " " + event.getLoggerName() + " " + event.getFormattedMessage() + trace;
+        return event.getLevel() + " " + event.getLoggerName() + " " + event.getFormattedMessage() + " " + fields + " "
+                + event.getMDCPropertyMap() + trace;
     }
 
     private List<String> logged() {
@@ -215,6 +220,11 @@ class SecretsNotInLogsIntegrationTest {
                 .query(Long.class).single() > 0) {
             Thread.sleep(100);
         }
+    }
+
+    // Un servicio que repite en su mensaje de error lo que recibió (el JWT, el teléfono): el log no debe copiarlo
+    private static String echoing(String code, String detail) {
+        return "{\"code\":\"" + code + "\",\"detail\":\"" + detail + "\"}";
     }
 
     private ResultActions asUser(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
@@ -277,13 +287,18 @@ class SecretsNotInLogsIntegrationTest {
         assertThat(CATALOG.authorizations()).containsOnly("Bearer " + USER_JWT);
         assertThat(CATEDRA.authorizations()).containsOnly("Bearer " + CATEDRA_JWT);
         assertThat(CATEDRA.requests().get(1).body()).contains(FIRST_NAME);
+        // Deja su traza (id, usuario y estado, y los ids de la cátedra) y aun así sin secretos (#50)
+        assertSomethingWasLogged("Reserva iniciada reservationId=");
+        assertSomethingWasLogged("status=WAITING_PHONE");
+        assertSomethingWasLogged("La cátedra creó el hold holdId=hold-1 reservationProcessId=process-1");
+        assertSomethingWasLogged("La cátedra aceptó confirmar el hold holdId=hold-1");
         assertNoSecretIsLogged();
     }
 
     @Test
     void aCatedraThatRejectsTheTechnicalJwtDoesNotLeakItInTheError() throws Exception {
         CATALOG.thenRespond(status(200, PROFESSIONAL), status(200, ACCOUNT));
-        CATEDRA.thenRespond(status(401, "{\"code\":\"UNAUTHORIZED\"}"));
+        CATEDRA.thenRespond(status(401, echoing("UNAUTHORIZED", CATEDRA_JWT)));
 
         startReservation();
 
@@ -296,26 +311,27 @@ class SecretsNotInLogsIntegrationTest {
     void aCatedraThatFailsOrCutsTheConnectionDoesNotLeakAnything() throws Exception {
         CATALOG.thenRespond(status(200, PROFESSIONAL), status(200, ACCOUNT), status(200, PROFESSIONAL),
                 status(200, ACCOUNT));
-        CATEDRA.thenRespond(status(500, "{\"code\":\"BOOM\"}"), cutConnection());
+        CATEDRA.thenRespond(status(500, echoing("BOOM", USER_JWT + " " + RAW_PHONE)), cutConnection());
 
         startReservation();
         startReservation();
 
         assertThat(CATEDRA.authorizations()).containsOnly("Bearer " + CATEDRA_JWT);
-        assertSomethingWasLogged("La cátedra respondió 500");
+        assertSomethingWasLogged("La cátedra respondió con un error del servidor status=500");
         assertSomethingWasLogged("La cátedra no respondió");
         assertNoSecretIsLogged();
     }
 
     @Test
     void aCatalogThatRejectsOrFailsDoesNotLeakTheUserJwt() throws Exception {
-        CATALOG.thenRespond(status(401, "{\"code\":\"UNAUTHORIZED\"}"), cutConnection());
+        CATALOG.thenRespond(status(401, echoing("UNAUTHORIZED", USER_JWT + " " + FIRST_NAME)), cutConnection());
 
         startReservation();
         startReservation();
 
         assertThat(CATALOG.authorizations()).containsOnly("Bearer " + USER_JWT);
-        assertSomethingWasLogged("Catálogo respondió 401");
+        assertSomethingWasLogged("Catálogo respondió con un status inesperado");
+        assertSomethingWasLogged("status=401");
         assertSomethingWasLogged("No se pudo conectar con catálogo");
         assertNoSecretIsLogged();
     }
@@ -335,6 +351,7 @@ class SecretsNotInLogsIntegrationTest {
 
         assertThat(jdbc.sql("SELECT payload FROM outbox_events").query(String.class).single())
                 .contains("+5492616159550");
+        assertSomethingWasLogged("Teléfono recibido reservationId=");
         assertNoSecretIsLogged();
     }
 
@@ -362,6 +379,8 @@ class SecretsNotInLogsIntegrationTest {
         cancel(other.getId());
 
         assertThat(CATEDRA.authorizations()).containsOnly("Bearer " + CATEDRA_JWT);
+        assertSomethingWasLogged("Reserva cancelada reservationId=");
+        assertSomethingWasLogged("La cátedra canceló la reserva reservationProcessId=");
         assertNoSecretIsLogged();
     }
 

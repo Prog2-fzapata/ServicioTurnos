@@ -13,6 +13,7 @@ import java.net.http.HttpTimeoutException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -30,6 +32,10 @@ import org.springframework.web.client.ResourceAccessException;
 
 import com.jayway.jsonpath.JsonPath;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraAuthenticationException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraNotReachedException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraRejectedException;
@@ -68,6 +74,9 @@ class CatedraApiClientAdapterTest {
             .withUserConfiguration(CatedraClientConfiguration.class, CatedraApiClientAdapter.class,
                     CatedraMapper.class);
 
+    private final Logger adapterLogger = (Logger) LoggerFactory.getLogger(CatedraApiClientAdapter.class);
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
     private FakeHttpServer server;
 
     @BeforeEach
@@ -82,6 +91,35 @@ class CatedraApiClientAdapterTest {
     void stopFakeCatedraAndLogOut() {
         server.close();
         SecurityContextHolder.clearContext();
+    }
+
+    @BeforeEach
+    void captureTheLog() {
+        adapterLogger.setLevel(Level.DEBUG);
+        appender.start();
+        adapterLogger.addAppender(appender);
+    }
+
+    @AfterEach
+    void releaseTheLog() {
+        adapterLogger.detachAppender(appender);
+        appender.stop();
+    }
+
+    // Los mensajes de toda la cadena de causas, para comprobar que ninguno trae lo que no debe
+    private static String messagesOf(Throwable error) {
+        StringBuilder messages = new StringBuilder();
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            messages.append(cause.getMessage()).append(' ');
+        }
+        return messages.toString();
+    }
+
+    // Los campos de una línea de log (los que salen como campos del JSON)
+    private static Map<String, Object> fieldsOf(ILoggingEvent event) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        event.getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+        return fields;
     }
 
     // Tiempos cortos para que los tests no esperen: 3 intentos, 50 ms antes del primer reintento (luego 100 ms)
@@ -694,5 +732,155 @@ class CatedraApiClientAdapterTest {
         assertThat(adapter.neverConnected(new ResourceAccessException("x", new HttpTimeoutException("read")))).isFalse();
         assertThat(adapter.neverConnected(new ResourceAccessException("x", new IOException("corte")))).isFalse();
         assertThat(adapter.neverConnected(new ResourceAccessException("x"))).isFalse();
+    }
+
+    // ---------- Log de lo que la cátedra aceptó
+
+    // Solo las llamadas que cambian algo dejan una línea, y solo con ids: nunca el paciente ni el motivo
+    @Test
+    void aHoldCreatedLeavesALineWithItsIdsAndNothingOfThePatient() {
+        server.thenRespond(status(201, HOLD_JSON));
+
+        withAdapter(adapter -> {
+            adapter.createHold(15L, DAY, LocalTime.of(9, 30), "user-42");
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.INFO);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra creó el hold");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("holdId", "hold-6c0c2f41",
+                        "reservationProcessId", "process-a92b47d0"));
+            });
+        });
+    }
+
+    @Test
+    void aHoldConfirmedLeavesALineWithoutThePatientNames() {
+        server.thenRespond(status(202, """
+                {"reservationProcessId": "process-a92b47d0", "status": "WAITING_FOR_PHONE",
+                 "expiresAt": "2026-09-10T14:44:50Z"}"""));
+
+        withAdapter(adapter -> {
+            adapter.confirmHold("hold-6c0c2f41", "user-42", "Juan", "Perez");
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.INFO);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra aceptó confirmar el hold");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("holdId", "hold-6c0c2f41",
+                        "reservationProcessId", "process-a92b47d0"));
+                assertThat(event.getFormattedMessage() + fieldsOf(event)).doesNotContain("Juan")
+                        .doesNotContain("Perez");
+            });
+        });
+    }
+
+    @Test
+    void aCancellationLeavesALineWithoutTheReason() {
+        server.thenRespond(status(200, """
+                {"reservationId": 8251, "reservationProcessId": "process-a92b47d0", "status": "CANCELLED",
+                 "cancelledAt": "2026-09-11T15:10:00Z"}"""));
+
+        withAdapter(adapter -> {
+            adapter.cancelAppointment("process-a92b47d0", "Cambio solicitado");
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.INFO);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra canceló la reserva");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("reservationProcessId", "process-a92b47d0"));
+                assertThat(event.getFormattedMessage() + fieldsOf(event)).doesNotContain("Cambio solicitado");
+            });
+        });
+    }
+
+    // Las consultas no cambian nada: no dejan línea, para que un servicio con tráfico no escriba de más
+    @Test
+    void aQueryLeavesNoLine() {
+        server.thenRespond(status(200, "[]", Map.of("X-Total-Count", "0")));
+
+        withAdapter(adapter -> {
+            adapter.findAppointments(new AppointmentQuery("user-42", AppointmentStatus.CONFIRMED), 0, 100);
+
+            assertThat(appender.list).isEmpty();
+        });
+    }
+
+    // ---------- Log de lo inesperado: solo el status, el código o la clase de la excepción, como campos
+
+    @Test
+    void a5xxLeavesAWarningWithTheStatus() {
+        server.thenRespond(status(500, "{\"detail\":\"cuerpo-secreto-de-la-catedra\"}"));
+
+        withAdapter("1", adapter -> {
+            assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
+                    .isInstanceOf(CatedraUnavailableException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra respondió con un error del servidor");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("status", 500));
+            });
+        });
+    }
+
+    @Test
+    void aRejectedTechnicalJwtLeavesAnErrorWithTheStatusAndNotTheJwt() {
+        server.thenRespond(status(401, "{\"detail\":\"cuerpo-secreto-de-la-catedra\"}"));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
+                    .isInstanceOf(CatedraAuthenticationException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("status", 401));
+                assertThat(event.getFormattedMessage() + fieldsOf(event)).doesNotContain(TECHNICAL_JWT)
+                        .doesNotContain("cuerpo-secreto");
+            });
+        });
+    }
+
+    @Test
+    void anAnswerThatTheServiceDidNotExpectLeavesAnErrorWithTheStatusAndTheCode() {
+        server.thenRespond(status(400, "{\"code\":\"VALIDATION_ERROR\",\"detail\":\"cuerpo-secreto\"}"));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
+                    .isInstanceOf(CatedraResponseException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(event.getFormattedMessage())
+                        .isEqualTo("La cátedra respondió con un error que turnos no esperaba");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("status", 400, "code", "VALIDATION_ERROR"));
+                assertThat(event.getFormattedMessage() + fieldsOf(event)).doesNotContain("cuerpo-secreto");
+            });
+        });
+    }
+
+    @Test
+    void aCutConnectionLeavesAWarningWithTheClassOfTheException() {
+        server.thenRespond(cutConnection());
+
+        withAdapter("1", adapter -> {
+            assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
+                    .isInstanceOf(CatedraUnavailableException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo("La cátedra no respondió");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("exception", "ResourceAccessException"));
+            });
+        });
+    }
+
+    // La excepción original de Spring trae el cuerpo de la respuesta en su mensaje: no debe quedar como causa, porque
+    // la traza de un error inesperado la escribiría en el log
+    @ParameterizedTest
+    @CsvSource({"400", "401", "500"})
+    void aResponseErrorDoesNotCarryTheBodyInItsChainOfCauses(int httpStatus) {
+        server.thenRespond(status(httpStatus, "{\"code\":\"ALGO\",\"detail\":\"cuerpo-secreto-de-la-catedra\"}"));
+
+        withAdapter("1", adapter -> assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
+                .satisfies(error -> assertThat(messagesOf(error)).doesNotContain("cuerpo-secreto")));
     }
 }

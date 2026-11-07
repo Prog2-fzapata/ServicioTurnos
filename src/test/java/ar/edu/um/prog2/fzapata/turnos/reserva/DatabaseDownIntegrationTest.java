@@ -64,7 +64,8 @@ class DatabaseDownIntegrationTest {
             rootLogger.detachAppender(appender);
             appender.stop();
         }
-        return List.copyOf(appender.list).stream().map(event -> event.getFormattedMessage()
+        return List.copyOf(appender.list).stream().map(event -> event.getFormattedMessage() + " "
+                + event.getKeyValuePairs() + " " + event.getMDCPropertyMap()
                 + (event.getThrowableProxy() == null ? "" : "\n" + ThrowableProxyUtil.asString(event.getThrowableProxy())))
                 .toList();
     }
