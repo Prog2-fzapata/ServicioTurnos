@@ -58,31 +58,23 @@ class CatalogClientAdapterTest {
 
     private FakeHttpServer server;
 
-    @BeforeEach
-    void startFakeCatalogAndLogIn() throws Exception {
-        server = new FakeHttpServer();
-        Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
-    }
-
-    @AfterEach
-    void stopFakeCatalogAndLogOut() {
-        server.close();
-        SecurityContextHolder.clearContext();
-    }
-
     private final Logger loggedClass = (Logger) LoggerFactory.getLogger(CatalogClientAdapter.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
     @BeforeEach
-    void captureTheLog() {
+    void startFakeCatalogLogInAndCaptureTheLog() throws Exception {
+        server = new FakeHttpServer();
+        Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
         loggedClass.setLevel(Level.DEBUG);
         appender.start();
         loggedClass.addAppender(appender);
     }
 
     @AfterEach
-    void releaseTheLog() {
+    void stopFakeCatalogLogOutAndReleaseTheLog() {
+        server.close();
+        SecurityContextHolder.clearContext();
         loggedClass.detachAppender(appender);
         appender.stop();
     }

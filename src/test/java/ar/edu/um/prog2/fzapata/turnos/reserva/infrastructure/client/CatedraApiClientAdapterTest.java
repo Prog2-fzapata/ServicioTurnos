@@ -80,28 +80,20 @@ class CatedraApiClientAdapterTest {
     private FakeHttpServer server;
 
     @BeforeEach
-    void startFakeCatedraAndLogInAsAUser() throws Exception {
+    void startFakeCatedraLogInAsAUserAndCaptureTheLog() throws Exception {
         server = new FakeHttpServer();
         // El usuario autenticado existe, pero la cátedra solo debe ver el JWT técnico
         Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
-    }
-
-    @AfterEach
-    void stopFakeCatedraAndLogOut() {
-        server.close();
-        SecurityContextHolder.clearContext();
-    }
-
-    @BeforeEach
-    void captureTheLog() {
         adapterLogger.setLevel(Level.DEBUG);
         appender.start();
         adapterLogger.addAppender(appender);
     }
 
     @AfterEach
-    void releaseTheLog() {
+    void stopFakeCatedraLogOutAndReleaseTheLog() {
+        server.close();
+        SecurityContextHolder.clearContext();
         adapterLogger.detachAppender(appender);
         appender.stop();
     }

@@ -65,12 +65,6 @@ class SseReservationChangePublisherTest {
         loggedClass.addAppender(appender);
     }
 
-    @AfterEach
-    void releaseTheLog() {
-        loggedClass.detachAppender(appender);
-        appender.stop();
-    }
-
     // Los campos de una línea de log (los que salen como campos del JSON)
     private static Map<String, Object> fieldsOf(ILoggingEvent event) {
         Map<String, Object> fields = new LinkedHashMap<>();
@@ -79,7 +73,9 @@ class SseReservationChangePublisherTest {
     }
 
     @AfterEach
-    void clearSynchronization() {
+    void releaseTheLogAndClearSynchronization() {
+        loggedClass.detachAppender(appender);
+        appender.stop();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
