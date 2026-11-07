@@ -3,6 +3,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,12 +43,14 @@ class RecoveryRoundLoggerTest {
     @ParameterizedTest(name = "{0} -> {1}")
     @CsvSource({"ORPHAN_FAILED, WARN", "CONFIRMED_BY_CATEDRA, WARN", "STILL_OPEN, INFO", "UNCHANGED, INFO",
             "UNVERIFIED, WARN", "CONFLICT, WARN"})
-    void eachOutcomeIsLoggedAtItsLevelWithTheProcess(RecoveryOutcome outcome, String level) {
+    void eachOutcomeIsLoggedAtItsLevelWithTheReservation(RecoveryOutcome outcome, String level) {
         roundLogger.log(List.of(new RecoveryResult(7L, ReservationStatus.PHONE_SUBMITTED, outcome)));
 
         assertThat(appender.list).hasSize(2);
         assertThat(appender.list.getFirst().getLevel().toString()).isEqualTo(level);
-        assertThat(appender.list.getFirst().getFormattedMessage()).contains("proceso 7");
+        assertThat(appender.list.getFirst().getFormattedMessage()).startsWith("Recuperación:");
+        assertThat(LoggedFields.of(appender.list.getFirst()))
+                .isEqualTo(Map.of("reservationId", 7L, "status", "PHONE_SUBMITTED"));
     }
 
     @Test
@@ -56,7 +59,8 @@ class RecoveryRoundLoggerTest {
                 new RecoveryResult(1L, ReservationStatus.HOLD_REQUESTED, RecoveryOutcome.ORPHAN_FAILED),
                 new RecoveryResult(2L, ReservationStatus.PHONE_SUBMITTED, RecoveryOutcome.STILL_OPEN)));
 
-        assertThat(appender.list.getLast().getFormattedMessage()).contains("2 procesos revisados");
+        assertThat(appender.list.getLast().getFormattedMessage()).isEqualTo("Recuperación al arrancar terminada");
+        assertThat(LoggedFields.of(appender.list.getLast())).isEqualTo(Map.of("reviewed", 2));
         assertThat(appender.list.getLast().getLevel()).isEqualTo(Level.INFO);
     }
 
@@ -64,7 +68,9 @@ class RecoveryRoundLoggerTest {
     void aRoundWithNothingToDoStillSaysSo() {
         roundLogger.log(List.of());
 
-        assertThat(appender.list).singleElement().satisfies(
-                event -> assertThat(event.getFormattedMessage()).contains("0 procesos revisados"));
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getFormattedMessage()).isEqualTo("Recuperación al arrancar terminada");
+            assertThat(LoggedFields.of(event)).isEqualTo(Map.of("reviewed", 0));
+        });
     }
 }

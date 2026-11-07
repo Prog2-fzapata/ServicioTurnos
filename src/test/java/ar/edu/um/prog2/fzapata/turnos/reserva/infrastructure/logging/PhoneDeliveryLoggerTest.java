@@ -3,6 +3,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
@@ -58,16 +59,18 @@ class PhoneDeliveryLoggerTest {
     }
 
     @Test
-    void aSentMessageLogsTheStateChangeOfTheProcess() {
+    void aSentMessageLogsTheStateChangeOfTheReservation() {
         TransitionResult transition = new TransitionResult(TransitionOutcome.APPLIED, ReservationStatus.PHONE_QUEUED,
-                ReservationStatus.PHONE_SUBMITTED, ReservationProcess.builder().id(7L).build());
+                ReservationStatus.PHONE_SUBMITTED, ReservationProcess.builder().id(7L).userId("42").build());
 
         phoneDeliveryLogger.log(List.of(new PhoneDelivery(event(0), true, Optional.of(transition))));
 
         ILoggingEvent logged = onlyEvent();
         assertThat(logged.getLevel()).isEqualTo(Level.INFO);
-        assertThat(logged.getFormattedMessage()).isEqualTo(
-                "Teléfono phone-submitted-1: el proceso 7 pasó de PHONE_QUEUED a PHONE_SUBMITTED");
+        assertThat(logged.getFormattedMessage()).isEqualTo("Transición aplicada");
+        assertThat(LoggedFields.of(logged)).isEqualTo(Map.of("eventType", "AdditionalInformationSubmitted",
+                "eventId", "phone-submitted-1", "reservationId", 7L, "userId", "42", "from", "PHONE_QUEUED",
+                "to", "PHONE_SUBMITTED"));
     }
 
     @Test
@@ -76,8 +79,9 @@ class PhoneDeliveryLoggerTest {
 
         ILoggingEvent logged = onlyEvent();
         assertThat(logged.getLevel()).isEqualTo(Level.WARN);
-        assertThat(logged.getFormattedMessage()).contains("phone-submitted-1").contains("process-1")
-                .contains("intento 2").contains("pendiente");
+        assertThat(logged.getFormattedMessage()).isEqualTo("Kafka no confirmó el teléfono, queda pendiente");
+        assertThat(LoggedFields.of(logged)).isEqualTo(Map.of("eventId", "phone-submitted-1",
+                "reservationProcessId", "process-1", "attempt", 2));
     }
 
     @Test
@@ -86,7 +90,8 @@ class PhoneDeliveryLoggerTest {
 
         ILoggingEvent logged = onlyEvent();
         assertThat(logged.getLevel()).isEqualTo(Level.INFO);
-        assertThat(logged.getFormattedMessage()).contains("ya figuraba como enviado");
+        assertThat(logged.getFormattedMessage()).isEqualTo("El teléfono ya figuraba como enviado");
+        assertThat(LoggedFields.of(logged)).isEqualTo(Map.of("eventId", "phone-submitted-1"));
     }
 
     @Test
@@ -99,7 +104,7 @@ class PhoneDeliveryLoggerTest {
                 new PhoneDelivery(event(1), false, Optional.empty()),
                 new PhoneDelivery(event(0), true, Optional.empty())));
 
-        assertThat(appender.list).hasSize(3).allSatisfy(logged -> assertThat(logged.getFormattedMessage())
+        assertThat(appender.list).hasSize(3).allSatisfy(logged -> assertThat(LoggedFields.everything(logged))
                 .doesNotContain("5492615551234").doesNotContain("phoneNumber"));
     }
 

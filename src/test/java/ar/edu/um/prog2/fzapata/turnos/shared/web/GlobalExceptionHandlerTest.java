@@ -1,5 +1,6 @@
 package ar.edu.um.prog2.fzapata.turnos.shared.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -9,7 +10,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
@@ -24,6 +31,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtConfiguration;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.ProblemDetailsSecurityHandler;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.SecurityConfiguration;
@@ -72,6 +83,29 @@ class GlobalExceptionHandlerTest {
     }
 
     private final MockMvc mockMvc;
+
+    private final Logger loggedClass = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+    @BeforeEach
+    void captureTheLog() {
+        loggedClass.setLevel(Level.DEBUG);
+        appender.start();
+        loggedClass.addAppender(appender);
+    }
+
+    @AfterEach
+    void releaseTheLog() {
+        loggedClass.detachAppender(appender);
+        appender.stop();
+    }
+
+    // Los campos de una línea de log (los que salen como campos del JSON)
+    private static Map<String, Object> fieldsOf(ILoggingEvent event) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        event.getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+        return fields;
+    }
 
     private RequestPostProcessor loggedIn() {
         return jwt();
@@ -144,5 +178,33 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/api/probe/constraint").with(loggedIn()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    // Sin base el log dice qué falló y dónde, con la clase de la excepción y no su mensaje
+    @Test
+    void aDatabaseThatIsDownIsLoggedWithThePathAndTheClassOfTheException() throws Exception {
+        mockMvc.perform(get("/api/probe/database-down").with(loggedIn())).andExpect(status().isServiceUnavailable());
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).isEqualTo("La base de datos no está disponible");
+            assertThat(fieldsOf(event)).isEqualTo(Map.of("path", "/api/probe/database-down",
+                    "exception", "DataAccessResourceFailureException"));
+            assertThat(event.getFormattedMessage() + fieldsOf(event) + event.getThrowableProxy())
+                    .doesNotContain("secreto");
+        });
+    }
+
+    // Los errores inesperados sí llevan la excepción entera: son los que hay que diagnosticar
+    @Test
+    void anUnexpectedErrorIsLoggedWithThePathAndTheWholeException() throws Exception {
+        mockMvc.perform(get("/api/probe/boom").with(loggedIn())).andExpect(status().isInternalServerError());
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).isEqualTo("Error inesperado");
+            assertThat(fieldsOf(event)).isEqualTo(Map.of("path", "/api/probe/boom"));
+            assertThat(event.getThrowableProxy().getClassName()).isEqualTo("java.lang.IllegalStateException");
+        });
     }
 }

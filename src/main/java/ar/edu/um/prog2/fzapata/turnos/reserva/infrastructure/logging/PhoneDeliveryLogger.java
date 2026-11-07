@@ -15,19 +15,23 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class PhoneDeliveryLogger {
 
+    // Lo único que publica el relay: el teléfono que el usuario envió (el outbox no guarda el tipo)
+    private static final String PHONE_EVENT_TYPE = "AdditionalInformationSubmitted";
+
     private final TransitionOutcomeLogger transitionOutcomeLogger;
 
     public void log(List<PhoneDelivery> deliveries) {
         for (PhoneDelivery delivery : deliveries) {
             String eventId = delivery.event().getEventId();
             if (!delivery.sent()) {
-                log.warn("Teléfono {}: Kafka no confirmó el mensaje del proceso {}, queda pendiente (intento {})",
-                        eventId, delivery.event().getReservationProcessId(), delivery.event().getAttempts());
+                log.atWarn().setMessage("Kafka no confirmó el teléfono, queda pendiente").addKeyValue("eventId", eventId)
+                        .addKeyValue("reservationProcessId", delivery.event().getReservationProcessId())
+                        .addKeyValue("attempt", delivery.event().getAttempts()).log();
             } else if (delivery.transition().isPresent()) {
-                transitionOutcomeLogger.log("Teléfono " + eventId, delivery.transition().get().process().getId(),
+                transitionOutcomeLogger.log(PHONE_EVENT_TYPE, eventId, delivery.transition().get().process().getId(),
                         delivery.transition());
             } else {
-                log.info("Teléfono {}: ya figuraba como enviado", eventId);
+                log.atInfo().setMessage("El teléfono ya figuraba como enviado").addKeyValue("eventId", eventId).log();
             }
         }
     }

@@ -33,7 +33,8 @@ public class StreamHeartbeatScheduler implements SchedulingConfigurer {
         try {
             registry.heartbeat();
         } catch (RuntimeException failure) {
-            log.error("El latido del stream falló; se repite en la próxima vuelta", failure);
+            log.atError().setMessage("El latido del stream falló; se repite en la próxima vuelta")
+                    .setCause(failure).log();
         }
     }
 }

@@ -3,6 +3,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,12 +43,13 @@ class ExpirationRoundLoggerTest {
     @ParameterizedTest(name = "{0} -> {1}")
     @CsvSource({"EXPIRED, INFO", "UNCHANGED, INFO", "CONFIRMED_BY_CATEDRA, WARN", "UNVERIFIED, WARN",
             "CONFLICT, WARN"})
-    void eachOutcomeIsLoggedAtItsLevelWithTheProcessAndItsStatus(ExpirationOutcome outcome, String level) {
+    void eachOutcomeIsLoggedAtItsLevelWithTheReservationAndItsStatus(ExpirationOutcome outcome, String level) {
         roundLogger.log(List.of(new ExpirationResult(7L, ReservationStatus.PHONE_SUBMITTED, outcome)));
 
         assertThat(appender.list).singleElement().satisfies(event -> {
             assertThat(event.getLevel().toString()).isEqualTo(level);
-            assertThat(event.getFormattedMessage()).contains("proceso 7").contains("PHONE_SUBMITTED");
+            assertThat(event.getFormattedMessage()).startsWith("Vencimiento:");
+            assertThat(LoggedFields.of(event)).isEqualTo(Map.of("reservationId", 7L, "status", "PHONE_SUBMITTED"));
         });
     }
 
@@ -58,8 +60,8 @@ class ExpirationRoundLoggerTest {
                 new ExpirationResult(2L, ReservationStatus.PHONE_SUBMITTED, ExpirationOutcome.CONFIRMED_BY_CATEDRA)));
 
         assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage).satisfiesExactly(
-                first -> assertThat(first).contains("pasó a EXPIRED"),
-                second -> assertThat(second).contains("tenía confirmado").contains("CONFIRMED"));
+                first -> assertThat(first).isEqualTo("Vencimiento: reserva expirada"),
+                second -> assertThat(second).contains("la tenía confirmada").contains("CONFIRMED"));
     }
 
     @Test

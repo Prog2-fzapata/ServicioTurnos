@@ -2,6 +2,8 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +54,7 @@ class EventResultLoggerTest {
 
     @Test
     void aProcessedEventLogsTheTransitionWithTheEventAsOrigin() {
-        ReservationProcess process = ReservationProcess.builder().id(7L).patientFirstName("Juan")
+        ReservationProcess process = ReservationProcess.builder().id(7L).userId("42").patientFirstName("Juan")
                 .patientPhone("+5492615551234").build();
         EventResult result = EventResult.processed(new TransitionResult(TransitionOutcome.APPLIED,
                 ReservationStatus.PHONE_SUBMITTED, ReservationStatus.CONFIRMED, process));
@@ -61,9 +63,39 @@ class EventResultLoggerTest {
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
-        assertThat(event.getFormattedMessage()).isEqualTo(
-                "Evento AppointmentConfirmed evento-1: el proceso 7 pasó de PHONE_SUBMITTED a CONFIRMED")
-                .doesNotContain("Juan").doesNotContain("5492615551234");
+        assertThat(event.getFormattedMessage()).isEqualTo("Transición aplicada");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AppointmentConfirmed", "eventId", "evento-1",
+                "reservationId", 7L, "userId", "42", "from", "PHONE_SUBMITTED", "to", "CONFIRMED"));
+        assertThat(LoggedFields.everything(event)).doesNotContain("Juan").doesNotContain("5492615551234");
+    }
+
+    // El pedido de teléfono no cambia el estado: el log dice qué pasó en vez del mensaje genérico de datos nuevos
+    @Test
+    void aPhoneRequestThatOnlyCompletedDataSaysThePhoneRequestWasRecorded() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).userId("42").build();
+        EventResult result = EventResult.processed(new TransitionResult(TransitionOutcome.DATA_COMPLETED,
+                ReservationStatus.WAITING_PHONE, ReservationStatus.WAITING_PHONE, process));
+
+        eventResultLogger.log(new CatedraEvent("evento-3", "AdditionalInformationRequested", "process-1", null, null,
+                null), result);
+
+        ILoggingEvent event = onlyEvent();
+        assertThat(event.getLevel()).isEqualTo(Level.INFO);
+        assertThat(event.getFormattedMessage()).isEqualTo("Pedido de teléfono registrado");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AdditionalInformationRequested",
+                "eventId", "evento-3", "reservationId", 7L, "userId", "42"));
+    }
+
+    // Solo el pedido de teléfono tiene su frase: cualquier otro dato nuevo usa el mensaje de siempre
+    @Test
+    void anotherEventThatOnlyCompletedDataKeepsTheGenericMessage() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).userId("42").build();
+        EventResult result = EventResult.processed(new TransitionResult(TransitionOutcome.DATA_COMPLETED,
+                ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED, process));
+
+        eventResultLogger.log(EVENT, result);
+
+        assertThat(onlyEvent().getFormattedMessage()).isEqualTo("Datos registrados, el estado no cambia");
     }
 
     @Test
@@ -72,16 +104,20 @@ class EventResultLoggerTest {
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
-        assertThat(event.getFormattedMessage()).contains("evento-1").contains("ya se había procesado");
+        assertThat(event.getFormattedMessage()).isEqualTo("Evento ya procesado, se ignora");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AppointmentConfirmed", "eventId",
+                "evento-1"));
     }
 
     @Test
-    void anUnknownProcessIsAWarningWithTheProcessId() {
+    void anUnknownReservationIsAWarningWithTheCatedraProcessId() {
         eventResultLogger.log(EVENT, EventResult.without(EventOutcome.UNKNOWN_PROCESS));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
-        assertThat(event.getFormattedMessage()).contains("evento-1").contains("process-1").contains("se ignora");
+        assertThat(event.getFormattedMessage()).isEqualTo("Evento de una reserva desconocida, se ignora");
+        assertThat(LoggedFields.of(event)).containsEntry("eventId", "evento-1")
+                .containsEntry("reservationProcessId", "process-1");
     }
 
     @Test
@@ -91,6 +127,7 @@ class EventResultLoggerTest {
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
-        assertThat(event.getFormattedMessage()).contains("AlgoNuevo").contains("evento-2").contains("se ignora");
+        assertThat(event.getFormattedMessage()).isEqualTo("Tipo de evento que no se trata, se ignora");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AlgoNuevo", "eventId", "evento-2"));
     }
 }

@@ -32,7 +32,8 @@ public class RecoveryRunner {
         try {
             recoveryRoundLogger.log(reservaService.recoverReservations(startedAt));
         } catch (RuntimeException failure) {
-            log.error("La recuperación al arrancar falló; el servicio sigue funcionando", failure);
+            log.atError().setMessage("La recuperación al arrancar falló; el servicio sigue funcionando")
+                    .setCause(failure).log();
         }
     }
 }

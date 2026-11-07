@@ -40,7 +40,8 @@ public class OutboxRelayScheduler implements SchedulingConfigurer {
         try {
             phoneDeliveryLogger.log(reservaService.publishPendingPhones());
         } catch (RuntimeException failure) {
-            log.error("El relay del outbox falló; se reintenta en la próxima vuelta", failure);
+            log.atError().setMessage("El relay del outbox falló; se reintenta en la próxima vuelta")
+                    .setCause(failure).log();
         }
     }
 }
