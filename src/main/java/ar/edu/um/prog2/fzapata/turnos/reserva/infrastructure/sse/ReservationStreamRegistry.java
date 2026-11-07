@@ -51,7 +51,7 @@ public class ReservationStreamRegistry implements SmartLifecycle {
         try {
             connection.emitter().complete();
         } catch (RuntimeException e) {
-            log.debug("La conexión ya estaba cerrada", e);
+            log.atDebug().setMessage("La conexión ya estaba cerrada").setCause(e).log();
         }
     }
 
@@ -60,7 +60,7 @@ public class ReservationStreamRegistry implements SmartLifecycle {
         try {
             connection.emitter().send(event);
         } catch (IOException | RuntimeException e) {
-            log.debug("Se descarta una conexión del stream que no responde", e);
+            log.atDebug().setMessage("Se descarta una conexión del stream que no responde").setCause(e).log();
             remove(userId, connection);
             complete(connection);
         }

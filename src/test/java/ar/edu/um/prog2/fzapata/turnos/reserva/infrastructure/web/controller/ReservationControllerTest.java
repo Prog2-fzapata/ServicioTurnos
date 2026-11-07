@@ -52,6 +52,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging.ReservationActionLogger;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.handler.ReservaExceptionHandler;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.mapper.ReservationDtoMapper;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtConfiguration;
@@ -78,6 +79,9 @@ class ReservationControllerTest {
     @MockitoBean
     private ReservaService reservaService;
 
+    @MockitoBean
+    private ReservationActionLogger reservationActionLogger;
+
     private ReservationProcess waitingForPhone() {
         return ReservationProcess.builder().id(101L).reservationProcessId("process-a92b47d0").holdId("hold-1")
                 .userId("42").professionalId(15L).professionalFirstName("Ana").professionalLastName("Gomez")
@@ -91,6 +95,26 @@ class ReservationControllerTest {
     private ResultActions send(String body) throws Exception {
         return mockMvc.perform(post(URL).with(jwt().jwt(token -> token.claim("uid", "42")))
                 .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    // Cada acción exitosa deja su línea de log (#50); una que falla no deja nada, porque no pasó
+    @Test
+    void startingAReservationIsLoggedAsAnAction() throws Exception {
+        ReservationProcess started = waitingForPhone();
+        when(reservaService.startReservation(any())).thenReturn(started);
+
+        send(BODY).andExpect(status().isCreated());
+
+        verify(reservationActionLogger).started(started);
+    }
+
+    @Test
+    void aStartThatFailsIsNotLoggedAsAnAction() throws Exception {
+        when(reservaService.startReservation(any())).thenThrow(new SlotUnavailableException());
+
+        send(BODY).andExpect(status().isConflict());
+
+        verifyNoInteractions(reservationActionLogger);
     }
 
     @Test
@@ -417,6 +441,26 @@ class ReservationControllerTest {
 
     // A33: el choque de versión que agota los reintentos es un 409 con su propio código y no un 500
     @Test
+    void cancellingIsLoggedAsAnAction() throws Exception {
+        ReservationProcess cancelled = waitingForPhone();
+        when(reservaService.cancelReservation(101L, "42", null)).thenReturn(cancelled);
+
+        cancel(null).andExpect(status().isOk());
+
+        verify(reservationActionLogger).cancelled(cancelled);
+    }
+
+    @Test
+    void aCancellationThatFailsIsNotLoggedAsAnAction() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null))
+                .thenThrow(new ReservationNotCancellableException(101L, ReservationStatus.WAITING_PHONE));
+
+        cancel(null).andExpect(status().isConflict());
+
+        verifyNoInteractions(reservationActionLogger);
+    }
+
+    @Test
     void aVersionConflictThatExhaustsTheRetriesWhileCancellingIsAConflict() throws Exception {
         when(reservaService.cancelReservation(101L, "42", null))
                 .thenThrow(new ReservationConflictException(101L, new RuntimeException("versión")));
@@ -458,6 +502,26 @@ class ReservationControllerTest {
         process.setRequestEventId("request-event-8a31");
         process.setPatientPhone("+5492615551234");
         return process;
+    }
+
+    @Test
+    void receivingThePhoneIsLoggedAsAnAction() throws Exception {
+        ReservationProcess queued = queued();
+        when(reservaService.submitPhone(101L, "42", "+5492615551234")).thenReturn(queued);
+
+        submitPhone("{\"phoneNumber\": \"+5492615551234\"}").andExpect(status().isAccepted());
+
+        verify(reservationActionLogger).phoneReceived(queued);
+    }
+
+    @Test
+    void aPhoneThatIsRejectedIsNotLoggedAsAnAction() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "+5492615551234"))
+                .thenThrow(new InvalidReservationStateException(101L, ReservationStatus.PHONE_QUEUED));
+
+        submitPhone("{\"phoneNumber\": \"+5492615551234\"}").andExpect(status().isConflict());
+
+        verifyNoInteractions(reservationActionLogger);
     }
 
     @Test

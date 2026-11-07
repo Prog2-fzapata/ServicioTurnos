@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.service.ReservaService;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging.ReservationActionLogger;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse.ReservationStreamRegistry;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.handler.ReservaExceptionHandler;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.mapper.ReservationDtoMapper;
@@ -31,7 +32,7 @@ import ar.edu.um.prog2.fzapata.turnos.shared.web.ProblemDetailsFactory;
 import lombok.RequiredArgsConstructor;
 
 @WebMvcTest({ReservationStreamController.class, ReservationController.class})
-@Import({ReservationDtoMapper.class, ReservaExceptionHandler.class, GlobalExceptionHandler.class, ProblemDetailsFactory.class, SecurityConfiguration.class,
+@Import({ReservationActionLogger.class, ReservationDtoMapper.class, ReservaExceptionHandler.class, GlobalExceptionHandler.class, ProblemDetailsFactory.class, SecurityConfiguration.class,
         JwtConfiguration.class, ProblemDetailsSecurityHandler.class})
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @RequiredArgsConstructor

@@ -77,8 +77,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     // siendo un 500
     @ExceptionHandler({DataAccessResourceFailureException.class, CannotCreateTransactionException.class})
     public ResponseEntity<ProblemDetail> handleDatabaseUnavailable(Exception ex, HttpServletRequest request) {
-        log.error("La base de datos no está disponible en {}: {}", request.getRequestURI(),
-                ex.getClass().getSimpleName());
+        log.atError().setMessage("La base de datos no está disponible").addKeyValue("path", request.getRequestURI())
+                .addKeyValue("exception", ex.getClass().getSimpleName()).log();
         return problemDetailsFactory.response(HttpStatus.SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE",
                 "El servicio no puede atender el pedido en este momento, intente nuevamente en unos minutos",
                 request.getRequestURI());
@@ -86,7 +86,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleUnexpected(Exception ex, HttpServletRequest request) {
-        log.error("Error inesperado en {}", request.getRequestURI(), ex);
+        log.atError().setMessage("Error inesperado").addKeyValue("path", request.getRequestURI()).setCause(ex).log();
         return problemDetailsFactory.internalError(request.getRequestURI());
     }
 

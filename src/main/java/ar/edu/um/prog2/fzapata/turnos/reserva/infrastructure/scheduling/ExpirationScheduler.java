@@ -38,7 +38,8 @@ public class ExpirationScheduler implements SchedulingConfigurer {
         try {
             expirationRoundLogger.log(reservaService.expireOverdueReservations());
         } catch (RuntimeException failure) {
-            log.error("La tarea de vencimiento falló; se reintenta en la próxima vuelta", failure);
+            log.atError().setMessage("La tarea de vencimiento falló; se reintenta en la próxima vuelta")
+                    .setCause(failure).log();
         }
     }
 }

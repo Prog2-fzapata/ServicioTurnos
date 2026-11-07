@@ -87,25 +87,28 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
         }
     }
 
-    // Los mensajes y el log llevan solo el status y el code: nunca el cuerpo, el JWT ni datos del paciente
+    // Los mensajes y el log llevan solo el status y el code: nunca el cuerpo, el JWT ni datos del paciente. Sin la
+    // excepción original como causa: su mensaje trae el cuerpo y llegaría al log con la traza de un error inesperado
     private RuntimeException translate(RestClientResponseException e) {
         int status = e.getStatusCode().value();
         if (e.getStatusCode().is5xxServerError()) {
-            log.warn("La cátedra respondió {}", status);
-            return new CatedraUnavailableException("La cátedra no está disponible (" + status + ")", e);
+            log.atWarn().setMessage("La cátedra respondió con un error del servidor").addKeyValue("status", status).log();
+            return new CatedraUnavailableException("La cátedra no está disponible (" + status + ")", null);
         }
         if (status == 401 || status == 403) {
-            log.error("La cátedra rechazó el JWT técnico ({}): revisar CATEDRA_JWT", status);
+            log.atError().setMessage("La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT")
+                    .addKeyValue("status", status).log();
             return new CatedraAuthenticationException(
-                    "La cátedra rechazó el JWT técnico (" + status + "): revisar CATEDRA_JWT", e);
+                    "La cátedra rechazó el JWT técnico (" + status + "): revisar CATEDRA_JWT", null);
         }
         String code = codeOf(e);
         CatedraRejection rejection = REJECTIONS.get(status + ":" + code);
         if (rejection != null) {
             return new CatedraRejectedException(rejection);
         }
-        log.error("La cátedra respondió {} ({}) y turnos no lo esperaba", status, code);
-        return new CatedraResponseException("La cátedra respondió " + status + (code == null ? "" : " " + code), e);
+        log.atError().setMessage("La cátedra respondió con un error que turnos no esperaba")
+                .addKeyValue("status", status).addKeyValue("code", code).log();
+        return new CatedraResponseException("La cátedra respondió " + status + (code == null ? "" : " " + code), null);
     }
 
     // ConnectException (rechazada) o HttpConnectTimeoutException: no se llegó a enviar nada
@@ -126,11 +129,12 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
             throw translate(e);
         } catch (ResourceAccessException e) {
             if (neverConnected(e)) {
-                log.warn("No se pudo conectar con la cátedra");
+                log.atWarn().setMessage("No se pudo conectar con la cátedra").log();
                 throw new CatedraNotReachedException("No se pudo conectar con la cátedra", e);
             }
             // Corte o timeout después de enviar: el pedido pudo haber llegado
-            log.warn("La cátedra no respondió: {}", e.getClass().getSimpleName());
+            log.atWarn().setMessage("La cátedra no respondió").addKeyValue("exception", e.getClass().getSimpleName())
+                    .log();
             throw new CatedraUnavailableException("La cátedra no respondió", e);
         } catch (RestClientException e) {
             // Llegó una respuesta, pero su cuerpo no se pudo leer como JSON del contrato
@@ -181,7 +185,10 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
                 .body(request)
                 .retrieve()
                 .body(HoldResponse.class));
-        return catedraMapper.toDomainModel(required(response));
+        Hold hold = catedraMapper.toDomainModel(required(response));
+        log.atInfo().setMessage("La cátedra creó el hold").addKeyValue("holdId", hold.getHoldId())
+                .addKeyValue("reservationProcessId", hold.getReservationProcessId()).log();
+        return hold;
     }
 
     @Override
@@ -194,7 +201,10 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
                 .body(request)
                 .retrieve()
                 .body(ConfirmResponse.class));
-        return catedraMapper.toDomainModel(required(response));
+        HoldConfirmation confirmation = catedraMapper.toDomainModel(required(response));
+        log.atInfo().setMessage("La cátedra aceptó confirmar el hold").addKeyValue("holdId", holdId)
+                .addKeyValue("reservationProcessId", confirmation.getReservationProcessId()).log();
+        return confirmation;
     }
 
     @Override
@@ -226,6 +236,9 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
             }
             return request.retrieve().body(CancelResponse.class);
         });
-        return catedraMapper.toDomainModel(required(response));
+        Cancellation cancellation = catedraMapper.toDomainModel(required(response));
+        log.atInfo().setMessage("La cátedra canceló la reserva")
+                .addKeyValue("reservationProcessId", cancellation.getReservationProcessId()).log();
+        return cancellation;
     }
 }

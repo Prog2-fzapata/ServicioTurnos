@@ -21,6 +21,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.service.ReservaService
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PagedResult;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging.ReservationActionLogger;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.CancelReservationRequest;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.ReservationResponse;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.StartReservationRequest;
@@ -41,6 +42,7 @@ public class ReservationController {
 
     private final ReservaService reservaService;
     private final ReservationDtoMapper reservationDtoMapper;
+    private final ReservationActionLogger reservationActionLogger;
 
     @Operation(summary = "Inicia una reserva: valida con catálogo, pide el bloqueo del horario a la cátedra y lo "
             + "confirma. Devuelve la reserva esperando el teléfono (WAITING_PHONE). El usuario sale del JWT")
@@ -49,8 +51,9 @@ public class ReservationController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody StartReservationRequest request) {
         String userId = jwt.getClaimAsString(JwtClaims.USER_ID);
-        return new ResponseEntity<>(reservationDtoMapper.toResponse(
-                reservaService.startReservation(reservationDtoMapper.toRequest(request, userId))), HttpStatus.CREATED);
+        ReservationProcess process = reservaService.startReservation(reservationDtoMapper.toRequest(request, userId));
+        reservationActionLogger.started(process);
+        return new ResponseEntity<>(reservationDtoMapper.toResponse(process), HttpStatus.CREATED);
     }
 
     @Operation(summary = "Lista las reservas del usuario, de la más reciente a la más antigua por fecha y hora del "
@@ -83,8 +86,10 @@ public class ReservationController {
     @PostMapping("/{id}/cancel")
     public ReservationResponse cancelReservation(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id, @Valid @RequestBody(required = false) CancelReservationRequest request) {
-        return reservationDtoMapper.toResponse(reservaService.cancelReservation(id,
-                jwt.getClaimAsString(JwtClaims.USER_ID), reservationDtoMapper.toReason(request)));
+        ReservationProcess process = reservaService.cancelReservation(id, jwt.getClaimAsString(JwtClaims.USER_ID),
+                reservationDtoMapper.toReason(request));
+        reservationActionLogger.cancelled(process);
+        return reservationDtoMapper.toResponse(process);
     }
 
     @Operation(summary = "Envía el teléfono del paciente. Solo con la reserva en WAITING_PHONE y el pedido de la "
@@ -93,7 +98,9 @@ public class ReservationController {
     @PostMapping("/{id}/phone")
     public ResponseEntity<ReservationResponse> submitPhone(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id, @Valid @RequestBody SubmitPhoneRequest request) {
-        return new ResponseEntity<>(reservationDtoMapper.toResponse(reservaService.submitPhone(id,
-                jwt.getClaimAsString(JwtClaims.USER_ID), request.getPhoneNumber())), HttpStatus.ACCEPTED);
+        ReservationProcess process = reservaService.submitPhone(id, jwt.getClaimAsString(JwtClaims.USER_ID),
+                request.getPhoneNumber());
+        reservationActionLogger.phoneReceived(process);
+        return new ResponseEntity<>(reservationDtoMapper.toResponse(process), HttpStatus.ACCEPTED);
     }
 }

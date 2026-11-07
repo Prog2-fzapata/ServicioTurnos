@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -16,11 +18,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
@@ -51,17 +58,41 @@ class CatalogClientAdapterTest {
 
     private FakeHttpServer server;
 
+    private final Logger loggedClass = (Logger) LoggerFactory.getLogger(CatalogClientAdapter.class);
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
     @BeforeEach
-    void startFakeCatalogAndLogIn() throws Exception {
+    void startFakeCatalogLogInAndCaptureTheLog() throws Exception {
         server = new FakeHttpServer();
         Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+        loggedClass.setLevel(Level.DEBUG);
+        appender.start();
+        loggedClass.addAppender(appender);
     }
 
     @AfterEach
-    void stopFakeCatalogAndLogOut() {
+    void stopFakeCatalogLogOutAndReleaseTheLog() {
         server.close();
         SecurityContextHolder.clearContext();
+        loggedClass.detachAppender(appender);
+        appender.stop();
+    }
+
+    // Los mensajes de toda la cadena de causas, para comprobar que ninguno trae lo que no debe
+    private static String messagesOf(Throwable error) {
+        StringBuilder messages = new StringBuilder();
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            messages.append(cause.getMessage()).append(' ');
+        }
+        return messages.toString();
+    }
+
+    // Los campos de una línea de log (los que salen como campos del JSON)
+    private static Map<String, Object> fieldsOf(ILoggingEvent event) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        event.getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+        return fields;
     }
 
     // Tiempos cortos para que los tests no esperen: 3 intentos, 50 ms antes del primer reintento (luego 100 ms)
@@ -360,5 +391,69 @@ class CatalogClientAdapterTest {
         server.thenRespond(status(200, "esto no es json"));
 
         withAdapter(adapter -> assertThatThrownBy(adapter::findAccount).isInstanceOf(CatalogResponseException.class));
+    }
+
+    // ---------- Log: solo el status o la clase de la excepción, como campos; nunca el cuerpo ni el JWT
+
+    @Test
+    void a5xxLeavesAWarningWithTheStatus() {
+        server.thenRespond(status(503, "{\"detail\":\"cuerpo-secreto-de-catalogo\"}"));
+
+        withAdapter("1", adapter -> {
+            assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo("Catálogo respondió con un error del servidor");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("status", 503));
+            });
+        });
+    }
+
+    @Test
+    void anUnexpected4xxLeavesAnErrorWithTheStatusAndNeitherTheBodyNorTheJwt() {
+        server.thenRespond(status(401, "{\"detail\":\"cuerpo-secreto-de-catalogo\"}"));
+
+        withAdapter(adapter -> {
+            assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogResponseException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(event.getFormattedMessage()).startsWith("Catálogo respondió con un status inesperado");
+                assertThat(fieldsOf(event)).isEqualTo(Map.of("status", 401));
+                assertThat(event.getFormattedMessage() + fieldsOf(event)).doesNotContain("cuerpo-secreto")
+                        .doesNotContain(USER_TOKEN);
+            });
+        });
+    }
+
+    @Test
+    void aServerThatIsDownLeavesAWarningWithTheClassOfTheException() {
+        String baseUrl = server.baseUrl();
+        server.close();
+
+        runner.withPropertyValues("catalogo.base-url=" + baseUrl, "catalogo.connect-timeout=500ms",
+                "catalogo.read-timeout=300ms", "catalogo.max-attempts=1", "catalogo.initial-backoff=10ms")
+                .run(context -> {
+                    assertThatThrownBy(() -> context.getBean(CatalogClientAdapter.class).findProfessional(15L))
+                            .isInstanceOf(CatalogUnavailableException.class);
+
+                    assertThat(appender.list).singleElement().satisfies(event -> {
+                        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(event.getFormattedMessage()).isEqualTo("No se pudo conectar con catálogo");
+                        assertThat(fieldsOf(event)).isEqualTo(Map.of("exception", "ResourceAccessException"));
+                    });
+                });
+    }
+
+    // La excepción original de Spring trae el cuerpo de la respuesta en su mensaje: no debe quedar como causa, porque
+    // la traza de un error inesperado la escribiría en el log
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 500})
+    void aResponseErrorDoesNotCarryTheBodyInItsChainOfCauses(int httpStatus) {
+        server.thenRespond(status(httpStatus, "{\"detail\":\"cuerpo-secreto-de-catalogo\"}"));
+
+        withAdapter("1", adapter -> assertThatThrownBy(() -> adapter.findProfessional(15L))
+                .satisfies(error -> assertThat(messagesOf(error)).doesNotContain("cuerpo-secreto")));
     }
 }

@@ -63,6 +63,7 @@ Parámetros de ajuste opcionales de los clientes de catálogo y de la cátedra y
 | `OUTBOX_PUBLISH_TIMEOUT` | Espera máxima por la confirmación de Kafka de un mensaje; si se agota queda pendiente y se reintenta | `10s` |
 | `OUTBOX_PUBLISH_BLOCK_TIMEOUT` | Milisegundos que una publicación puede bloquearse esperando los metadatos del broker (`max.block.ms` del productor); sin broker falla en ese tiempo y el mensaje queda pendiente. Se suma a `OUTBOX_PUBLISH_TIMEOUT` | `5000` |
 | `DB_CONNECTION_TIMEOUT` | Milisegundos que un pedido espera una conexión del pool de la base antes de fallar con `503` | `5000` |
+| `LOG_FORMAT` | Formato de los logs: `ecs` (JSON, por defecto), `logstash` (otro JSON) o vacío para el texto de Spring Boot, que no muestra los campos de cada línea (ver «Logs») | `ecs` |
 | `STREAM_HEARTBEAT_INTERVAL` | Cada cuánto el stream de cambios manda el comentario de latido; también es la precisión con que se cierra una conexión cuyo JWT venció | `25s` |
 | `STREAM_MAX_CONNECTIONS_PER_USER` | Conexiones del stream abiertas a la vez por usuario; al superarlo se cierra la más vieja. Mínimo 1 | `5` |
 | `RESERVATION_EXPIRATION_INTERVAL` | Cada cuánto corre la tarea que expira las reservas vencidas (espera entre el fin de una vuelta y el comienzo de la siguiente) | `30s` |
@@ -401,27 +402,59 @@ Lo que depende solo de datos propios sigue funcionando: validar el JWT no consul
 
 ## Logs
 
-El servicio escribe en la salida estándar (`docker compose logs -f turnos`) con el formato por defecto de Spring Boot, a nivel `INFO`. Cada línea de negocio dice **qué proceso y qué pasó**, y nada más: el id local del proceso, el origen (el evento o la tarea que lo cambió), el estado de origen y el de destino.
+El servicio escribe en la salida estándar (`docker compose logs -f turnos`) **una línea de JSON por evento** (formato ECS de Spring Boot), a nivel `INFO`. Cada línea de negocio tiene un mensaje corto y estable, y sus datos como **campos**, así se filtra por campo sin depender de la redacción:
 
-| Se registra | Ejemplo |
+```json
+{"@timestamp":"2026-11-07T14:56:27Z","log":{"level":"INFO","logger":"…ReservationActionLogger"},"service":{"name":"turnos"},
+ "message":"Reserva iniciada","reservationId":12,"userId":"42","status":"WAITING_PHONE"}
+```
+
+| Campo | Qué es |
 | --- | --- |
-| Cada transición y por qué se ignoró | `Evento AppointmentConfirmed <eventId>: el proceso 12 pasó de PHONE_SUBMITTED a CONFIRMED` |
-| Eventos duplicados, de un proceso desconocido o de un tipo que no se trata | `Evento X <eventId>: ya se había procesado, se ignora` |
-| El teléfono que Kafka no confirmó (solo ids y el número de intento, nunca el número) | `Teléfono <eventId>: Kafka no confirmó el mensaje del proceso …, queda pendiente (intento 2)` |
-| Cada vuelta del vencimiento y de la recuperación, con lo que dudó | `Vencimiento: no se pudo comprobar con la cátedra el proceso 12 (…)` |
-| Las respuestas inesperadas de catálogo y de la cátedra, **solo con el status** | `La cátedra respondió 500` |
-| Los errores inesperados, con su traza | `Error inesperado en /api/reservations` |
+| `reservationId` | El id local de la reserva, el mismo `id` que devuelve la API |
+| `userId` | El id interno del usuario (nunca su nombre ni su teléfono) |
+| `status`, `from`, `to` | El estado en que quedó una reserva, o de cuál a cuál pasó |
+| `eventType`, `eventId` | El evento de la cátedra (o el mensaje del teléfono) que cambió la reserva |
+| `holdId`, `reservationProcessId` | Los ids de la cátedra: el bloqueo del horario y su proceso |
+| `attempt` | El número de intento de una publicación en Kafka |
+| `status`, `code` | En un error de catálogo o de la cátedra: el status HTTP y, si lo hay, el `code` del error |
+| `path`, `exception` | En un error propio: la ruta del pedido y el nombre de la clase de la excepción |
+
+Para filtrar: `docker compose logs --no-log-prefix turnos | jq -c 'select(.reservationId == 12)'`. Para leerlas a ojo, este filtro deja una línea corta por evento (salta lo que no es JSON):
+
+```bash
+docker compose logs -f --no-log-prefix turnos | jq -R -r 'fromjson? | [.["@timestamp"][11:19], .log.level, .message,
+  (del(.["@timestamp"], .log, .process, .service, .ecs, .message, .tags, .error) | to_entries | map("\(.key)=\(.value)") | join(" ")),
+  (if .error then "(\(.error.type): \(.error.message))" else "" end)] | map(select(. != "")) | join("  ")'
+```
+
+Todas las líneas de log se escriben igual (mensaje fijo y datos como campos), y `LogStyleTest` falla si alguien escribe una de otra forma. `LOG_FORMAT` cambia el formato: `logstash` es otro JSON, y vacío vuelve al texto de Spring Boot, que **no muestra los campos** (solo el mensaje).
+
+| Se registra | Mensaje y campos |
+| --- | --- |
+| Lo que hace el usuario por HTTP: iniciar, enviar el teléfono y cancelar | `Reserva iniciada`, `Teléfono recibido`, `Reserva cancelada`: `reservationId`, `userId`, `status` |
+| Lo que la cátedra aceptó (hold creado, confirmación y cancelación; las consultas no dejan línea) | `La cátedra creó el hold`, `La cátedra aceptó confirmar el hold`, `La cátedra canceló la reserva`: `holdId`, `reservationProcessId` |
+| Cada transición por un evento o por el relay, y por qué se ignoró | `Transición aplicada` (`from`, `to`), `Sin cambios, ya estaba en ese estado`, `Transición ignorada, el diagrama no la permite`: `eventType`, `eventId`, `reservationId`, `userId` |
+| El pedido de teléfono de la cátedra, que no cambia el estado | `Pedido de teléfono registrado`: `eventType`, `eventId`, `reservationId`, `userId` |
+| Eventos duplicados, de una reserva desconocida o de un tipo que no se trata | `Evento ya procesado, se ignora`, `Evento de una reserva desconocida, se ignora`, `Tipo de evento que no se trata, se ignora` |
+| El teléfono que Kafka no confirmó (solo ids y el intento, nunca el número) | `Kafka no confirmó el teléfono, queda pendiente`: `eventId`, `reservationProcessId`, `attempt` |
+| Cada vuelta del vencimiento y de la recuperación, con lo que dudó | `Vencimiento: …` y `Recuperación: …`: `reservationId`, `status` |
+| Las respuestas inesperadas de catálogo y de la cátedra, **solo con el status y el código** | `La cátedra respondió con un error del servidor` (`status`), `La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT` (`status`), `La cátedra respondió con un error que turnos no esperaba` (`status`, `code`), `La cátedra no respondió` (`exception`), y los equivalentes de catálogo |
+| La base de datos caída | `La base de datos no está disponible`: `path`, `exception` |
+| Los errores inesperados, con su traza | `Error inesperado`: `path`, y la excepción en `error` |
+| Una tarea que falla, o la recuperación al arrancar | `El relay del outbox falló; se reintenta en la próxima vuelta`, y los equivalentes (mensaje fijo y la excepción en `error`) |
 
 **Nunca se escribe:** el JWT del usuario, el JWT técnico de la cátedra, el secreto de firma, la contraseña de la base, el teléfono, el nombre del paciente ni el motivo de una cancelación. Cómo se garantiza:
 
 - Los modelos y DTO que llevan el nombre o el teléfono no tienen `toString`, y `CatedraProperties.toString` oculta el JWT, así que un objeto que llegue por error a un log no los imprime.
-- Los clientes registran el status (o el nombre de la clase de la excepción), nunca el cuerpo de la respuesta ni los headers.
+- Los clientes registran el status y el código (o el nombre de la clase de la excepción), nunca el cuerpo de la respuesta ni los headers. Tampoco pasan la excepción original de Spring como causa de las suyas en las respuestas con cuerpo: su mensaje trae el cuerpo y aparecería en la traza de un error inesperado.
 - El manejador de pedidos con la base caída registra el nombre de la clase de la excepción, no su mensaje.
 - Los errores inesperados sí registran la excepción entera (mensaje y traza), porque son los que hay que diagnosticar. El mensaje de una excepción no lo controla el servicio, y por eso el test del criterio compara también las trazas.
+- Los campos son una vía más por donde podría colarse un dato: el test del criterio lee **el mensaje, los campos, el contexto (MDC) y la traza** de cada línea.
 
-No hay contexto por pedido (MDC) ni métricas propias: el id del proceso va en cada línea y alcanza para seguir un flujo. El estado del servicio es `/actuator/health`, y es lo único de `actuator` que se expone.
+No hay contexto por pedido (MDC) ni métricas propias: el id de la reserva va en cada línea y alcanza para seguir un flujo. Las líneas del vencimiento y de la recuperación llevan la reserva pero no el usuario, porque sus resultados no lo traen. El estado del servicio es `/actuator/health`, y es lo único de `actuator` que se expone.
 
-Lo comprueba `SecretsNotInLogsIntegrationTest`: corre los flujos reales (iniciar, teléfono con y sin confirmación de Kafka, cancelar, errores de catálogo y de la cátedra, el relay y el listener de Kafka con mensajes válidos e inválidos) con un JWT, un teléfono, un nombre y un motivo de prueba reconocibles, captura todo lo que se escribe en el log y verifica que ninguno aparece. `DatabaseDownIntegrationTest` hace lo mismo con la base caída y su contraseña.
+Lo comprueba `SecretsNotInLogsIntegrationTest`: corre los flujos reales (iniciar, teléfono con y sin confirmación de Kafka, cancelar, errores de catálogo y de la cátedra, el relay y el listener de Kafka con mensajes válidos e inválidos) con un JWT, un teléfono, un nombre y un motivo de prueba reconocibles, captura todo lo que se escribe en el log y verifica que ninguno aparece. Antes comprueba que el flujo sí dejó sus líneas (la acción del usuario y las de la cátedra), para que no pase en vacío. `DatabaseDownIntegrationTest` hace lo mismo con la base caída y su contraseña.
 
 ## Tests
 

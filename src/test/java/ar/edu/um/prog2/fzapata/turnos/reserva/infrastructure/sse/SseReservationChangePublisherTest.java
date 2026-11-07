@@ -1,5 +1,6 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.sse;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -10,12 +11,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationProcess;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
 
@@ -46,8 +55,27 @@ class SseReservationChangePublisherTest {
         }
     }
 
+    private final Logger loggedClass = (Logger) LoggerFactory.getLogger(SseReservationChangePublisher.class);
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+    @BeforeEach
+    void captureTheLog() {
+        loggedClass.setLevel(Level.DEBUG);
+        appender.start();
+        loggedClass.addAppender(appender);
+    }
+
+    // Los campos de una línea de log (los que salen como campos del JSON)
+    private static Map<String, Object> fieldsOf(ILoggingEvent event) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        event.getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+        return fields;
+    }
+
     @AfterEach
-    void clearSynchronization() {
+    void releaseTheLogAndClearSynchronization() {
+        loggedClass.detachAppender(appender);
+        appender.stop();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -121,5 +149,19 @@ class SseReservationChangePublisherTest {
         publisher.publish(process(ReservationStatus.HELD));
 
         assertThatCode(this::commit).doesNotThrowAnyException();
+    }
+
+    @Test
+    void aFailureWhileSendingLeavesAWarningWithTheEventIdAndTheCause() {
+        doThrow(new IllegalStateException("el registro falló")).when(registry).send(anyString(), anyString(), any());
+
+        publisher.publish(process(ReservationStatus.HELD));
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).isEqualTo("No se pudo avisar el cambio por el stream");
+            assertThat(fieldsOf(event)).containsOnlyKeys("eventId");
+            assertThat(event.getThrowableProxy().getMessage()).isEqualTo("el registro falló");
+        });
     }
 }

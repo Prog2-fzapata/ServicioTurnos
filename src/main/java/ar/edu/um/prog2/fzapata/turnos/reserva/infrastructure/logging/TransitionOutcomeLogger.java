@@ -2,6 +2,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 
 import java.util.Optional;
 
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.stereotype.Component;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.TransitionResult;
@@ -13,22 +14,33 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class TransitionOutcomeLogger {
 
-    // origin dice qué disparó el cambio, por ejemplo "Evento AppointmentConfirmed"
-    public void log(String origin, Long processId, Optional<TransitionResult> result) {
+    private static LoggingEventBuilder described(LoggingEventBuilder event, String eventType, String eventId,
+            Long reservationId, String userId) {
+        return LogFields.reservation(LogFields.origin(event, eventType, eventId), reservationId, userId);
+    }
+
+    // eventType y eventId dicen qué evento disparó el cambio; eventId puede ser null
+    public void log(String eventType, String eventId, Long reservationId, Optional<TransitionResult> result) {
         if (result.isEmpty()) {
-            log.warn("{}: el proceso de reserva {} no existe", origin, processId);
+            LogFields.reservation(LogFields.origin(log.atWarn().setMessage("Reserva inexistente"), eventType, eventId),
+                    reservationId, null).log();
             return;
         }
         TransitionResult transition = result.get();
+        String userId = transition.process().getUserId();
         switch (transition.outcome()) {
-            case APPLIED -> log.info("{}: el proceso {} pasó de {} a {}", origin, processId, transition.from(),
-                    transition.target());
-            case DATA_COMPLETED -> log.info("{}: el proceso {} ya estaba en {}, se completaron datos que faltaban",
-                    origin, processId, transition.target());
-            case ALREADY_IN_STATE -> log.info("{}: el proceso {} ya estaba en {}, sin cambios", origin, processId,
-                    transition.target());
-            case REJECTED -> log.warn("{}: se ignora el paso de {} a {} del proceso {}: el diagrama no lo permite",
-                    origin, transition.from(), transition.target(), processId);
+            case APPLIED -> described(log.atInfo().setMessage("Transición aplicada"), eventType, eventId,
+                    reservationId, userId).addKeyValue("from", transition.from().name())
+                    .addKeyValue("to", transition.target().name()).log();
+            case DATA_COMPLETED -> described(log.atInfo().setMessage("Datos registrados, el estado no cambia"),
+                    eventType, eventId, reservationId, userId).addKeyValue("status", transition.target().name())
+                    .log();
+            case ALREADY_IN_STATE -> described(log.atInfo().setMessage("Sin cambios, ya estaba en ese estado"),
+                    eventType, eventId, reservationId, userId).addKeyValue("status", transition.target().name())
+                    .log();
+            case REJECTED -> described(log.atWarn().setMessage("Transición ignorada, el diagrama no la permite"),
+                    eventType, eventId, reservationId, userId).addKeyValue("from", transition.from().name())
+                    .addKeyValue("to", transition.target().name()).log();
         }
     }
 }

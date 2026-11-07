@@ -2,6 +2,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
@@ -39,8 +40,8 @@ class TransitionOutcomeLoggerTest {
 
     private static TransitionResult result(TransitionOutcome outcome, ReservationStatus from, ReservationStatus target) {
         // Con datos del paciente a propósito: el logger no debe sacarlos nunca
-        ReservationProcess process = ReservationProcess.builder().id(7L).status(from).patientFirstName("Juan")
-                .patientLastName("Perez").patientPhone("+5492615551234").build();
+        ReservationProcess process = ReservationProcess.builder().id(7L).userId("42").status(from)
+                .patientFirstName("Juan").patientLastName("Perez").patientPhone("+5492615551234").build();
         return new TransitionResult(outcome, from, target, process);
     }
 
@@ -51,65 +52,84 @@ class TransitionOutcomeLoggerTest {
 
     @Test
     void anAppliedStepIsInfoWithBothStatuses() {
-        transitionOutcomeLogger.log("Evento AppointmentConfirmed", 7L, Optional.of(
+        transitionOutcomeLogger.log("AppointmentConfirmed", "evento-1", 7L, Optional.of(
                 result(TransitionOutcome.APPLIED, ReservationStatus.PHONE_SUBMITTED, ReservationStatus.CONFIRMED)));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
-        assertThat(event.getFormattedMessage()).isEqualTo(
-                "Evento AppointmentConfirmed: el proceso 7 pasó de PHONE_SUBMITTED a CONFIRMED");
+        assertThat(event.getFormattedMessage()).isEqualTo("Transición aplicada");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AppointmentConfirmed",
+                "eventId", "evento-1", "reservationId", 7L, "userId", "42", "from", "PHONE_SUBMITTED",
+                "to", "CONFIRMED"));
     }
 
     @Test
     void completedDataIsInfoAndSaysTheStatusDidNotChange() {
-        transitionOutcomeLogger.log("Evento AdditionalInformationRequested", 7L, Optional.of(result(
+        transitionOutcomeLogger.log("AdditionalInformationRequested", "evento-1", 7L, Optional.of(result(
                 TransitionOutcome.DATA_COMPLETED, ReservationStatus.WAITING_PHONE, ReservationStatus.WAITING_PHONE)));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
-        assertThat(event.getFormattedMessage()).isEqualTo("Evento AdditionalInformationRequested: el proceso 7 ya "
-                + "estaba en WAITING_PHONE, se completaron datos que faltaban");
+        assertThat(event.getFormattedMessage()).isEqualTo("Datos registrados, el estado no cambia");
+        assertThat(LoggedFields.of(event)).containsEntry("reservationId", 7L).containsEntry("userId", "42")
+                .containsEntry("status", "WAITING_PHONE");
     }
 
     @Test
     void aRepeatedStepIsInfoAndSaysNothingChanged() {
-        transitionOutcomeLogger.log("Cancelación", 7L, Optional.of(
+        transitionOutcomeLogger.log("AppointmentCancelled", "evento-1", 7L, Optional.of(
                 result(TransitionOutcome.ALREADY_IN_STATE, ReservationStatus.CANCELLED, ReservationStatus.CANCELLED)));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
-        assertThat(event.getFormattedMessage()).isEqualTo("Cancelación: el proceso 7 ya estaba en CANCELLED, sin cambios");
+        assertThat(event.getFormattedMessage()).isEqualTo("Sin cambios, ya estaba en ese estado");
+        assertThat(LoggedFields.of(event)).containsEntry("reservationId", 7L).containsEntry("status", "CANCELLED");
     }
 
     @Test
     void aRejectedStepIsAWarningThatSaysItIsIgnored() {
-        transitionOutcomeLogger.log("Evento AppointmentConfirmed", 7L,
+        transitionOutcomeLogger.log("AppointmentConfirmed", "evento-1", 7L,
                 Optional.of(result(TransitionOutcome.REJECTED, ReservationStatus.EXPIRED, ReservationStatus.CONFIRMED)));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
-        assertThat(event.getFormattedMessage()).contains("se ignora").contains("EXPIRED").contains("CONFIRMED")
-                .contains("proceso 7");
+        assertThat(event.getFormattedMessage()).isEqualTo("Transición ignorada, el diagrama no la permite");
+        assertThat(LoggedFields.of(event)).containsEntry("from", "EXPIRED").containsEntry("to", "CONFIRMED")
+                .containsEntry("reservationId", 7L);
     }
 
     @Test
-    void aMissingProcessIsAWarning() {
-        transitionOutcomeLogger.log("Evento AppointmentConfirmed", 7L, Optional.empty());
+    void aMissingReservationIsAWarning() {
+        transitionOutcomeLogger.log("AppointmentConfirmed", "evento-1", 7L, Optional.empty());
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
-        assertThat(event.getFormattedMessage()).isEqualTo("Evento AppointmentConfirmed: el proceso de reserva 7 no existe");
+        assertThat(event.getFormattedMessage()).isEqualTo("Reserva inexistente");
+        assertThat(LoggedFields.of(event)).isEqualTo(Map.of("eventType", "AppointmentConfirmed",
+                "eventId", "evento-1", "reservationId", 7L));
+    }
+
+    // El usuario y el id del evento ayudan a buscar; si no se conocen, el campo no sale
+    @Test
+    void withoutAKnownUserOrEventIdTheFieldsAreLeftOut() {
+        ReservationProcess process = ReservationProcess.builder().id(7L).status(ReservationStatus.HELD).build();
+
+        transitionOutcomeLogger.log("Cancelación", null, 7L, Optional.of(new TransitionResult(
+                TransitionOutcome.APPLIED, ReservationStatus.HELD, ReservationStatus.WAITING_PHONE, process)));
+
+        assertThat(LoggedFields.of(onlyEvent())).isEqualTo(Map.of("eventType", "Cancelación", "reservationId", 7L,
+                "from", "HELD", "to", "WAITING_PHONE"));
     }
 
     @Test
     void neverLogsPatientData() {
         for (TransitionOutcome outcome : TransitionOutcome.values()) {
-            transitionOutcomeLogger.log("Origen", 7L,
+            transitionOutcomeLogger.log("Origen", "evento-1", 7L,
                     Optional.of(result(outcome, ReservationStatus.HELD, ReservationStatus.WAITING_PHONE)));
         }
 
         assertThat(appender.list).hasSize(TransitionOutcome.values().length)
-                .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                .allSatisfy(event -> assertThat(LoggedFields.everything(event))
                         .doesNotContain("Juan").doesNotContain("Perez").doesNotContain("5492615551234"));
     }
 }

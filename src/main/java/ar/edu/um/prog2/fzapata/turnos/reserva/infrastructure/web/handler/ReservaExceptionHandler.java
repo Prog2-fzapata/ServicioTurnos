@@ -122,7 +122,7 @@ public class ReservaExceptionHandler {
     // (cancelar ya llegó a la cátedra y el evento ajusta el estado local): el cliente consulta antes de repetirlo
     @ExceptionHandler(ReservationConflictException.class)
     public ResponseEntity<ProblemDetail> handleReservationConflict(HttpServletRequest request) {
-        log.warn("Choque de versión agotado en {}", request.getRequestURI());
+        log.atWarn().setMessage("Choque de versión agotado").addKeyValue("path", request.getRequestURI()).log();
         return problemDetailsFactory.response(HttpStatus.CONFLICT, "RESERVATION_CONFLICT",
                 "La reserva fue modificada por otra operación, consulte su estado antes de repetir el pedido",
                 request.getRequestURI());

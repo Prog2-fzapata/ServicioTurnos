@@ -46,7 +46,8 @@ public class SseReservationChangePublisher implements ReservationChangePublisher
         try {
             registry.send(userId, eventId, update);
         } catch (RuntimeException e) {
-            log.warn("No se pudo avisar el cambio {} por el stream", eventId, e);
+            log.atWarn().setMessage("No se pudo avisar el cambio por el stream").addKeyValue("eventId", eventId)
+                    .setCause(e).log();
         }
     }
 }
