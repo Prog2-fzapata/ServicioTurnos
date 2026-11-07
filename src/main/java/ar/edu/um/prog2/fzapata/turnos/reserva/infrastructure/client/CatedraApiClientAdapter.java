@@ -203,8 +203,6 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
                 () -> catedraRestClient.get()
                         .uri(uri -> uri.path("/api/appointments")
                                 .queryParamIfPresent("status", Optional.ofNullable(query.status()))
-                                .queryParamIfPresent("from", Optional.ofNullable(query.from()))
-                                .queryParamIfPresent("to", Optional.ofNullable(query.to()))
                                 .queryParamIfPresent("externalPatientId",
                                         Optional.ofNullable(query.externalPatientId()))
                                 .queryParam("page", page)

@@ -82,16 +82,17 @@ class ReservationDtoMapperTest {
                 "version");
     }
 
-    // El vencimiento solo tiene sentido mientras el proceso sigue abierto
+    // El vencimiento solo tiene sentido mientras el proceso puede vencer: no en uno terminado ni en uno confirmado (A35)
     @ParameterizedTest
-    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"})
-    void aFinalProcessHasNoExpiry(ReservationStatus status) {
+    @EnumSource(value = ReservationStatus.class, names = {"HELD", "WAITING_PHONE", "PHONE_QUEUED", "PHONE_SUBMITTED"},
+            mode = EnumSource.Mode.EXCLUDE)
+    void aProcessThatCannotExpireHasNoExpiry(ReservationStatus status) {
         assertThat(mapper.toResponse(process(status)).getExpiresAt()).isNull();
     }
 
     @ParameterizedTest
-    @EnumSource(value = ReservationStatus.class, names = {"EXPIRED", "FAILED", "CANCELLED"}, mode = EnumSource.Mode.EXCLUDE)
-    void anOpenProcessKeepsItsExpiry(ReservationStatus status) {
+    @EnumSource(value = ReservationStatus.class, names = {"HELD", "WAITING_PHONE", "PHONE_QUEUED", "PHONE_SUBMITTED"})
+    void aProcessThatCanExpireKeepsItsExpiry(ReservationStatus status) {
         assertThat(mapper.toResponse(process(status)).getExpiresAt()).isEqualTo(Instant.parse("2026-10-07T14:44:50Z"));
     }
 

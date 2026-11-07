@@ -41,6 +41,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PhoneWindowE
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationConflictException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationNotCancellableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
@@ -90,6 +91,17 @@ class ReservationControllerTest {
     private ResultActions send(String body) throws Exception {
         return mockMvc.perform(post(URL).with(jwt().jwt(token -> token.claim("uid", "42")))
                 .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    @Test
+    void aVersionConflictThatExhaustsTheRetriesWhileStartingIsAConflict() throws Exception {
+        when(reservaService.startReservation(any()))
+                .thenThrow(new ReservationConflictException(101L, new RuntimeException("versión")));
+
+        send(BODY)
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RESERVATION_CONFLICT"));
     }
 
     @Test
@@ -403,6 +415,19 @@ class ReservationControllerTest {
                 .andExpect(jsonPath("$.detail", not(containsString("WAITING_PHONE"))));
     }
 
+    // A33: el choque de versión que agota los reintentos es un 409 con su propio código y no un 500
+    @Test
+    void aVersionConflictThatExhaustsTheRetriesWhileCancellingIsAConflict() throws Exception {
+        when(reservaService.cancelReservation(101L, "42", null))
+                .thenThrow(new ReservationConflictException(101L, new RuntimeException("versión")));
+
+        cancel(null)
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RESERVATION_CONFLICT"))
+                .andExpect(jsonPath("$.detail", not(containsString("versión"))));
+    }
+
     @Test
     void ifTheCatedraIsDownCancellingIsServiceUnavailable() throws Exception {
         when(reservaService.cancelReservation(101L, "42", null))
@@ -433,6 +458,17 @@ class ReservationControllerTest {
         process.setRequestEventId("request-event-8a31");
         process.setPatientPhone("+5492615551234");
         return process;
+    }
+
+    @Test
+    void aVersionConflictThatExhaustsTheRetriesWhileSubmittingThePhoneIsAConflict() throws Exception {
+        when(reservaService.submitPhone(101L, "42", "+5492615551234"))
+                .thenThrow(new ReservationConflictException(101L, new RuntimeException("versión")));
+
+        submitPhone("{\"phoneNumber\": \"+5492615551234\"}")
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RESERVATION_CONFLICT"));
     }
 
     @Test

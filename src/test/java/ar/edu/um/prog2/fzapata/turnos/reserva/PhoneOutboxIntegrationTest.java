@@ -3,6 +3,7 @@ package ar.edu.um.prog2.fzapata.turnos.reserva;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -46,6 +47,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import ar.edu.um.prog2.fzapata.turnos.KafkaTestcontainersConfiguration;
 import ar.edu.um.prog2.fzapata.turnos.TestcontainersConfiguration;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PhonePublishException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationConflictException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.service.ReservaService;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraEvent;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneDelivery;
@@ -236,6 +238,24 @@ class PhoneOutboxIntegrationTest {
 
         submit(seeded.getId(), "2616159550").andExpect(status().isInternalServerError());
 
+        assertThat(process(processId)).containsEntry("status", "WAITING_PHONE").containsEntry("patient_phone", null);
+        assertThat(outbox(processId)).isEmpty();
+    }
+
+    // A33: el choque de versión que agota los reintentos responde 409 y no deja nada escrito: ni el estado ni el mensaje
+    @Test
+    void aVersionConflictThatExhaustsTheRetriesAnswers409AndChangesNothing() throws Exception {
+        String processId = newProcessId();
+        ReservationProcess seeded = waiting(processId);
+        clearInvocations(reservationProcessRepository);
+        doThrow(new ReservationConflictException(seeded.getId(), new RuntimeException("versión")))
+                .when(reservationProcessRepository).save(any());
+
+        submit(seeded.getId(), "2616159550")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESERVATION_CONFLICT"));
+
+        verify(reservationProcessRepository, times(3)).save(any());
         assertThat(process(processId)).containsEntry("status", "WAITING_PHONE").containsEntry("patient_phone", null);
         assertThat(outbox(processId)).isEmpty();
     }

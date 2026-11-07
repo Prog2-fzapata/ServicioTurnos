@@ -157,14 +157,14 @@ class ExpireOverdueReservationsUseCaseImplTest {
     }
 
     @Test
-    void theCatedraIsAskedForTheConfirmedAppointmentsOfThatPatientOnThatDay() {
+    void theCatedraIsAskedForTheConfirmedAppointmentsOfThatPatientWithoutFilteringByDate() {
         overdue(process(1, ReservationStatus.PHONE_SUBMITTED));
         catedraAnswers(List.of(), 0);
         transitionIs(TransitionOutcome.APPLIED);
 
         useCase().expireOverdue();
 
-        verify(catedra).findAppointments(new AppointmentQuery("42", AppointmentStatus.CONFIRMED, DATE, DATE), 0, 100);
+        verify(catedra).findAppointments(new AppointmentQuery("42", AppointmentStatus.CONFIRMED), 0, 100);
     }
 
     // El caso que justifica la consulta: la confirmación llegó a la cátedra y el evento todavía no a turnos
