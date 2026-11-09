@@ -52,6 +52,12 @@ class CatalogClientAdapterTest {
               ]
             }""";
 
+    // Los tests que no prueban tiempos esperan con holgura: bajo carga (el CI, o una JVM recién arrancada) una sola
+    // llamada puede tardar segundos. Solo los de timeout usan el corto, que es el que hace falta para que no esperen
+    private static final String CONNECT_TIMEOUT = "5s";
+    private static final String READ_TIMEOUT = "10s";
+    private static final String SHORT_READ_TIMEOUT = "300ms";
+
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(CatalogClientConfiguration.class, JwtPropagationInterceptor.class,
                     CatalogClientAdapter.class, CatalogProfessionalMapper.class, CatalogAccountMapper.class);
@@ -95,15 +101,24 @@ class CatalogClientAdapterTest {
         return fields;
     }
 
-    // Tiempos cortos para que los tests no esperen: 3 intentos, 50 ms antes del primer reintento (luego 100 ms)
-    private void withAdapter(String maxAttempts, Consumer<CatalogClientAdapter> test) {
-        runner.withPropertyValues("catalogo.base-url=" + server.baseUrl(), "catalogo.connect-timeout=500ms",
-                "catalogo.read-timeout=300ms", "catalogo.max-attempts=" + maxAttempts, "catalogo.initial-backoff=50ms")
+    // Reintentos con esperas cortas para que los tests no esperen: 50 ms antes del primer reintento (luego 100 ms)
+    private void withAdapter(String readTimeout, String maxAttempts, Consumer<CatalogClientAdapter> test) {
+        runner.withPropertyValues("catalogo.base-url=" + server.baseUrl(),
+                "catalogo.connect-timeout=" + CONNECT_TIMEOUT, "catalogo.read-timeout=" + readTimeout,
+                "catalogo.max-attempts=" + maxAttempts, "catalogo.initial-backoff=50ms")
                 .run(context -> test.accept(context.getBean(CatalogClientAdapter.class)));
+    }
+
+    private void withAdapter(String maxAttempts, Consumer<CatalogClientAdapter> test) {
+        withAdapter(READ_TIMEOUT, maxAttempts, test);
     }
 
     private void withAdapter(Consumer<CatalogClientAdapter> test) {
         withAdapter("3", test);
+    }
+
+    private void withShortReadTimeout(Consumer<CatalogClientAdapter> test) {
+        withAdapter(SHORT_READ_TIMEOUT, "3", test);
     }
 
     @Test
@@ -231,7 +246,7 @@ class CatalogClientAdapterTest {
     void aTimeoutIsUnavailableAfterTheAttempts() {
         server.thenRespond(slow(1_000));
 
-        withAdapter(adapter -> {
+        withShortReadTimeout(adapter -> {
             assertThatThrownBy(() -> adapter.findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class);
             assertThat(server.requestCount()).isEqualTo(3);
         });
@@ -242,8 +257,8 @@ class CatalogClientAdapterTest {
         String baseUrl = server.baseUrl();
         server.close();
 
-        runner.withPropertyValues("catalogo.base-url=" + baseUrl, "catalogo.connect-timeout=500ms",
-                "catalogo.read-timeout=300ms", "catalogo.max-attempts=2", "catalogo.initial-backoff=10ms")
+        runner.withPropertyValues("catalogo.base-url=" + baseUrl, "catalogo.connect-timeout=" + CONNECT_TIMEOUT,
+                "catalogo.read-timeout=" + READ_TIMEOUT, "catalogo.max-attempts=2", "catalogo.initial-backoff=10ms")
                 .run(context -> assertThatThrownBy(() -> context.getBean(CatalogClientAdapter.class)
                         .findProfessional(15L)).isInstanceOf(CatalogUnavailableException.class));
     }
@@ -432,8 +447,8 @@ class CatalogClientAdapterTest {
         String baseUrl = server.baseUrl();
         server.close();
 
-        runner.withPropertyValues("catalogo.base-url=" + baseUrl, "catalogo.connect-timeout=500ms",
-                "catalogo.read-timeout=300ms", "catalogo.max-attempts=1", "catalogo.initial-backoff=10ms")
+        runner.withPropertyValues("catalogo.base-url=" + baseUrl, "catalogo.connect-timeout=" + CONNECT_TIMEOUT,
+                "catalogo.read-timeout=" + READ_TIMEOUT, "catalogo.max-attempts=1", "catalogo.initial-backoff=10ms")
                 .run(context -> {
                     assertThatThrownBy(() -> context.getBean(CatalogClientAdapter.class).findProfessional(15L))
                             .isInstanceOf(CatalogUnavailableException.class);

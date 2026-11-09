@@ -70,6 +70,12 @@ class CatedraApiClientAdapterTest {
              "createdAt": "2026-09-10T14:35:00Z", "confirmedAt": "2026-09-10T14:36:00Z", "cancelledAt": null,
              "cancellationReason": null, "campoNuevo": 1}""";
 
+    // Los tests que no prueban tiempos esperan con holgura: bajo carga (el CI, o una JVM recién arrancada) una sola
+    // llamada puede tardar segundos. Solo los de timeout usan el corto, que es el que hace falta para que no esperen
+    private static final String CONNECT_TIMEOUT = "5s";
+    private static final String READ_TIMEOUT = "10s";
+    private static final String SHORT_READ_TIMEOUT = "300ms";
+
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(CatedraClientConfiguration.class, CatedraApiClientAdapter.class,
                     CatedraMapper.class);
@@ -114,12 +120,17 @@ class CatedraApiClientAdapterTest {
         return fields;
     }
 
-    // Tiempos cortos para que los tests no esperen: 3 intentos, 50 ms antes del primer reintento (luego 100 ms)
-    private void withAdapter(String baseUrl, String maxAttempts, Consumer<CatedraApiClientAdapter> test) {
+    // Reintentos con esperas cortas para que los tests no esperen: 50 ms antes del primer reintento (luego 100 ms)
+    private void withAdapter(String baseUrl, String readTimeout, String maxAttempts,
+            Consumer<CatedraApiClientAdapter> test) {
         runner.withPropertyValues("catedra.base-url=" + baseUrl, "catedra.jwt=" + TECHNICAL_JWT,
-                "catedra.connect-timeout=500ms", "catedra.read-timeout=300ms", "catedra.max-attempts=" + maxAttempts,
-                "catedra.initial-backoff=50ms")
+                "catedra.connect-timeout=" + CONNECT_TIMEOUT, "catedra.read-timeout=" + readTimeout,
+                "catedra.max-attempts=" + maxAttempts, "catedra.initial-backoff=50ms")
                 .run(context -> test.accept(context.getBean(CatedraApiClientAdapter.class)));
+    }
+
+    private void withAdapter(String baseUrl, String maxAttempts, Consumer<CatedraApiClientAdapter> test) {
+        withAdapter(baseUrl, READ_TIMEOUT, maxAttempts, test);
     }
 
     private void withAdapter(String maxAttempts, Consumer<CatedraApiClientAdapter> test) {
@@ -128,6 +139,10 @@ class CatedraApiClientAdapterTest {
 
     private void withAdapter(Consumer<CatedraApiClientAdapter> test) {
         withAdapter("3", test);
+    }
+
+    private void withShortReadTimeout(Consumer<CatedraApiClientAdapter> test) {
+        withAdapter(server.baseUrl(), SHORT_READ_TIMEOUT, "3", test);
     }
 
     private Hold createHold(CatedraApiClientAdapter adapter) {
@@ -243,7 +258,7 @@ class CatedraApiClientAdapterTest {
     void aHoldIsNotRepeatedAfterATimeout() {
         server.thenRespond(slow(1_000));
 
-        withAdapter(adapter -> {
+        withShortReadTimeout(adapter -> {
             assertThatThrownBy(() -> createHold(adapter)).isInstanceOf(CatedraUnavailableException.class)
                     .isNotInstanceOf(CatedraNotReachedException.class);
             assertThat(server.requestCount()).isEqualTo(1);
@@ -617,7 +632,7 @@ class CatedraApiClientAdapterTest {
     void aReadIsRetriedAfterATimeout() {
         server.thenRespond(slow(1_000));
 
-        withAdapter(adapter -> {
+        withShortReadTimeout(adapter -> {
             assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
                     .isInstanceOf(CatedraUnavailableException.class);
             assertThat(server.requestCount()).isEqualTo(3);
