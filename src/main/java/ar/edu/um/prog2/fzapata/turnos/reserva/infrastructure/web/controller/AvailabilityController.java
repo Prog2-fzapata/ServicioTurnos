@@ -30,9 +30,12 @@ public class AvailabilityController {
             + "informa como ocupado, sin horarios pasados. Es una foto: el veredicto real lo da el hold al reservar")
     @GetMapping
     public ResponseEntity<AvailabilityResponse> getAvailability(
-            @Parameter(description = "Id del profesional") @RequestParam Long professionalId,
+            @Parameter(description = "Id del profesional")
+            @RequestParam Long professionalId,
+
             @Parameter(description = "Primer día, inclusivo (yyyy-MM-dd)")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+
             @Parameter(description = "Último día, inclusivo (yyyy-MM-dd); no anterior a from")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ResponseEntity.ok(availabilityDtoMapper.toResponse(
