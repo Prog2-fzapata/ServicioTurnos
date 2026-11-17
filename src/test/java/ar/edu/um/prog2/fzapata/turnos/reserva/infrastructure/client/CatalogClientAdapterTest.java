@@ -33,7 +33,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnava
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogSchedule;
-import ar.edu.um.prog2.fzapata.turnos.shared.config.CatalogClientConfiguration;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.config.CatalogClientConfiguration;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtPropagationInterceptor;
 
 // El adapter con su configuración real (propiedades, timeouts, reintentos e interceptor) contra un catálogo simulado
