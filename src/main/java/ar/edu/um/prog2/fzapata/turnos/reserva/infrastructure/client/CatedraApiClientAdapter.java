@@ -215,6 +215,8 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
                                 .queryParamIfPresent("status", Optional.ofNullable(query.status()))
                                 .queryParamIfPresent("externalPatientId",
                                         Optional.ofNullable(query.externalPatientId()))
+                                .queryParamIfPresent("from", Optional.ofNullable(query.from()))
+                                .queryParamIfPresent("to", Optional.ofNullable(query.to()))
                                 .queryParam("page", page)
                                 .queryParam("size", size)
                                 .build())

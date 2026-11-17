@@ -1,5 +1,6 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.application.usecases;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
@@ -28,8 +29,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 class CatedraReconciliation {
 
-    // Se piden todos los turnos confirmados del paciente, sin filtrar por fecha (la cátedra responde 500 a from y a to,
-    // A34): un paciente tiene pocos y una página alcanza. Si no alcanzara no se actúa
+    // Se piden los turnos confirmados del paciente en el día del turno del proceso (from y to iguales): un paciente
+    // tiene muy pocos en un día y una página alcanza. Si no alcanzara no se actúa
     private static final int CONFIRMED_PAGE_SIZE = 100;
 
     // CONFIRMED: la cátedra lo tiene confirmado. NOT_CONFIRMED: respondió completo y no figura. INCOMPLETE: hay más
@@ -58,8 +59,10 @@ class CatedraReconciliation {
     // Ante la duda no se actúa: un EXPIRED es final y descartaría una confirmación que la cátedra sí tiene
     Answer askIfConfirmed(ReservationProcess process) {
         try {
+            LocalDate day = process.getAppointmentDate();
             AppointmentPage page = catedraApiClient.findAppointments(
-                    new AppointmentQuery(process.getUserId(), AppointmentStatus.CONFIRMED), 0, CONFIRMED_PAGE_SIZE);
+                    new AppointmentQuery(process.getUserId(), AppointmentStatus.CONFIRMED, day, day), 0,
+                    CONFIRMED_PAGE_SIZE);
             Optional<CatedraAppointment> match = page.content().stream()
                     .filter(appointment -> process.getReservationProcessId() != null
                             && process.getReservationProcessId().equals(appointment.getReservationProcessId()))

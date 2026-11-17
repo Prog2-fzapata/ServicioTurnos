@@ -305,7 +305,7 @@ Si el servicio se cae a mitad de una reserva, pueden quedar procesos dudosos que
 | Proceso | Qué pudo pasar | Qué hace la recuperación |
 | --- | --- | --- |
 | `HOLD_REQUESTED` sin `holdId` ni `reservationProcessId` | Se cayó el servicio o se perdió la respuesta del hold: nunca se recibieron los ids. | Pasa a `FAILED` con el motivo `HOLD_RESULT_UNKNOWN` (el mismo de iniciar una reserva). El hold que la cátedra haya creado vence solo. |
-| `PHONE_QUEUED` y `PHONE_SUBMITTED` | El `AppointmentConfirmed` no llegó. | Le pregunta a la cátedra con `GET /api/appointments` (`CONFIRMED` del paciente, sin filtrar por fecha porque la cátedra responde `500` a `from` y a `to`): si el proceso figura confirmado, se repara a `CONFIRMED` con su `reservationId`; si no, se deja como está. |
+| `PHONE_QUEUED` y `PHONE_SUBMITTED` | El `AppointmentConfirmed` no llegó. | Le pregunta a la cátedra con `GET /api/appointments` (`CONFIRMED` del paciente en el día del turno del proceso, con `from` y `to` iguales a esa fecha): si el proceso figura confirmado, se repara a `CONFIRMED` con su `reservationId`; si no, se deja como está. |
 
 - **La guarda del arranque.** El servidor web acepta pedidos antes de que se dispare el evento de arranque, así que un `HOLD_REQUESTED` de un pedido en curso se parecería a uno huérfano. Solo se fallan los creados **antes de que arrancara el contexto de esta instancia**.
 - **Solo con evidencia.** No se cierra nada porque la cátedra no lo tenga confirmado. Si la cátedra no responde, o devuelve más resultados que la página (100) sin que aparezca el proceso, ese proceso no se toca; tras el primer fallo no se vuelve a consultar. Los huérfanos no necesitan a la cátedra y se fallan igual.

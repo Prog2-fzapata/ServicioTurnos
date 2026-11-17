@@ -1,4 +1,4 @@
-package ar.edu.um.prog2.fzapata.turnos.shared.config;
+package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.config;
 
 import java.net.http.HttpClient;
 
@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraNotReachedException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.shared.config.CatedraProperties;
 
 // Cliente HTTP hacia la cátedra: JWT técnico fijo (no el del usuario), timeouts y reintentos
 @Configuration
