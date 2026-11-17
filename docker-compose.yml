@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TURNOS_DB_NAME}
+      POSTGRES_USER: ${TURNOS_DB_USER}
+      POSTGRES_PASSWORD: ${TURNOS_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  turnos:
+    build: .
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      TURNOS_DB_NAME: ${TURNOS_DB_NAME}
+      TURNOS_DB_USER: ${TURNOS_DB_USER}
+      TURNOS_DB_PASSWORD: ${TURNOS_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      CATALOGO_BASE_URL: ${CATALOGO_BASE_URL}
+      CATEDRA_BASE_URL: ${CATEDRA_BASE_URL}
+      CATEDRA_JWT: ${CATEDRA_JWT}
+      CATEDRA_KAFKA_BOOTSTRAP_SERVERS: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS}
+      CATEDRA_KAFKA_GROUP_ID: ${CATEDRA_KAFKA_GROUP_ID}
+      CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC: ${CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC}
+      CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC}
+      CATEDRA_GROUP_ID: ${CATEDRA_GROUP_ID}
+      # Parámetros de ajuste opcionales: el valor por defecto está en application.properties. Sin valor aquí, Compose
+      # los pasa solo si están definidos en el shell o en el .env, y en ese caso ganan
+      CATALOGO_CONNECT_TIMEOUT:
+      CATALOGO_READ_TIMEOUT:
+      CATALOGO_MAX_ATTEMPTS:
+      CATALOGO_INITIAL_BACKOFF:
+      CATEDRA_CONNECT_TIMEOUT:
+      CATEDRA_READ_TIMEOUT:
+      CATEDRA_MAX_ATTEMPTS:
+      CATEDRA_INITIAL_BACKOFF:
+      AVAILABILITY_ZONE:
+      AVAILABILITY_MAX_RANGE_DAYS:
+      RESERVATION_CONFLICT_MAX_ATTEMPTS:
+      RESERVATION_HOLD_MAX_ATTEMPTS:
+      RESERVATION_PAGE_MAX_SIZE:
+      CATEDRA_KAFKA_MAX_RETRIES:
+      CATEDRA_KAFKA_INITIAL_BACKOFF:
+      OUTBOX_RELAY_INTERVAL:
+      OUTBOX_RELAY_BATCH_SIZE:
+      OUTBOX_PUBLISH_TIMEOUT:
+      OUTBOX_PUBLISH_BLOCK_TIMEOUT:
+      LOG_FORMAT:
+      STREAM_HEARTBEAT_INTERVAL:
+      STREAM_MAX_CONNECTIONS_PER_USER:
+      RESERVATION_EXPIRATION_INTERVAL:
+      RESERVATION_EXPIRATION_GRACE:
+      RESERVATION_EXPIRATION_BATCH_SIZE:
+      SCHEDULING_POOL_SIZE:
+      RECOVERY_BATCH_SIZE:
+      DB_CONNECTION_TIMEOUT:
+    # Catálogo corre en su propio compose y publica su puerto en el host: así el contenedor lo alcanza (en Linux
+    # host.docker.internal no existe sin esto)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${TURNOS_PORT:-8082}:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

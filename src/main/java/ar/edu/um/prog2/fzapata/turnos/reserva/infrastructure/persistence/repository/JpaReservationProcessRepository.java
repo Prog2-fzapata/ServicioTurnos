@@ -1,0 +1,56 @@
+package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.persistence.repository;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ReservationStatus;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.persistence.entity.ReservationProcessEntity;
+
+@Repository
+public interface JpaReservationProcessRepository extends JpaRepository<ReservationProcessEntity, Long> {
+
+    Optional<ReservationProcessEntity> findByIdAndUserId(Long id, String userId);
+
+    Optional<ReservationProcessEntity> findByReservationProcessId(String reservationProcessId);
+
+    // Usa el índice (status, expires_at). El id desempata los vencimientos iguales para que el orden sea estable
+    @Query("""
+            select r from ReservationProcessEntity r
+            where r.status in :statuses and r.expiresAt <= :expiredUntil
+            order by r.expiresAt asc, r.id asc""")
+    List<ReservationProcessEntity> findExpirable(@Param("statuses") Collection<ReservationStatus> statuses,
+            @Param("expiredUntil") Instant expiredUntil, Pageable limit);
+
+    @Query("""
+            select r from ReservationProcessEntity r
+            where r.status = :status and r.holdId is null and r.reservationProcessId is null
+              and r.createdAt < :createdBefore
+            order by r.createdAt asc, r.id asc""")
+    List<ReservationProcessEntity> findStaleHoldRequests(@Param("status") ReservationStatus status,
+            @Param("createdBefore") Instant createdBefore, Pageable limit);
+
+    @Query("""
+            select r from ReservationProcessEntity r
+            where r.status in :statuses
+            order by r.updatedAt asc, r.id asc""")
+    List<ReservationProcessEntity> findByStatuses(@Param("statuses") Collection<ReservationStatus> statuses,
+            Pageable limit);
+
+    @Query("""
+            select r from ReservationProcessEntity r
+            where r.userId = :userId
+              and (:status is null or r.status = :status)
+              and (:hideDiscarded = false or r.status not in :discarded)""")
+    Page<ReservationProcessEntity> search(@Param("userId") String userId, @Param("status") ReservationStatus status,
+            @Param("hideDiscarded") boolean hideDiscarded, @Param("discarded") Collection<ReservationStatus> discarded,
+            Pageable pageable);
+}
