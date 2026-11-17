@@ -1,6 +1,8 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.domain.model;
 
-// Los criterios son opcionales y combinables. Sin filtro por fecha: la cátedra responde 500 a from y a to (A34), y quien
-// necesita un proceso lo busca por su reservationProcessId entre los resultados
-public record AppointmentQuery(String externalPatientId, AppointmentStatus status) {
+import java.time.LocalDate;
+
+// Los criterios son opcionales y combinables. from y to (inclusivos) acotan por la fecha del turno: la reconciliación
+// pide solo el día del turno de un proceso, y lo busca por su reservationProcessId entre los resultados
+public record AppointmentQuery(String externalPatientId, AppointmentStatus status, LocalDate from, LocalDate to) {
 }
