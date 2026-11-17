@@ -51,7 +51,7 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Hold;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldConfirmation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Occupancy;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.OccupancyStatus;
-import ar.edu.um.prog2.fzapata.turnos.shared.config.CatedraClientConfiguration;
+import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.config.CatedraClientConfiguration;
 
 // El adapter con su configuración real (propiedades, JWT técnico, timeouts y reintentos) contra una cátedra simulada
 class CatedraApiClientAdapterTest {

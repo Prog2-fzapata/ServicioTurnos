@@ -1,4 +1,4 @@
-package ar.edu.um.prog2.fzapata.turnos.shared.config;
+package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.ExpirationPolicy;
+import ar.edu.um.prog2.fzapata.turnos.shared.config.ExpirationProperties;
 
 // Carga el application.properties real: así se prueban el valor por defecto y que el entorno lo pise
 class ExpirationPropertiesTest {

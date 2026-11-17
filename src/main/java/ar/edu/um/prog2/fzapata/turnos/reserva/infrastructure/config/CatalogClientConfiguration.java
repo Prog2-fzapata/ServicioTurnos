@@ -1,4 +1,4 @@
-package ar.edu.um.prog2.fzapata.turnos.shared.config;
+package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.config;
 
 import java.net.http.HttpClient;
 
@@ -11,6 +11,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatalogUnavailableException;
+import ar.edu.um.prog2.fzapata.turnos.shared.config.CatalogProperties;
 import ar.edu.um.prog2.fzapata.turnos.shared.security.JwtPropagationInterceptor;
 
 // Cliente HTTP hacia catálogo: timeouts, reintentos y reenvío del JWT del usuario
