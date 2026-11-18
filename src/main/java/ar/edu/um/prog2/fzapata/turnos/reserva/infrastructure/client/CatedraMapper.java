@@ -19,15 +19,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.dto.Occupanc
 @Component
 public class CatedraMapper {
 
-    private Occupancy toDomainModel(OccupancyResponse response) {
-        return Occupancy.builder()
-                .date(response.getDate())
-                .startTime(response.getStartTime())
-                .status(response.getStatus())
-                .expiresAt(response.getExpiresAt())
-                .build();
-    }
-
     // Una lista ausente se toma como vacía: "sin ocupaciones" es una respuesta válida
     public List<Occupancy> toDomainModel(OccupancyListResponse response) {
         if (response == null || response.getOccupancies() == null) return List.of();
@@ -80,6 +71,15 @@ public class CatedraMapper {
                 .reservationId(response.getReservationId())
                 .reservationProcessId(response.getReservationProcessId())
                 .cancelledAt(response.getCancelledAt())
+                .build();
+    }
+
+    private Occupancy toDomainModel(OccupancyResponse response) {
+        return Occupancy.builder()
+                .date(response.getDate())
+                .startTime(response.getStartTime())
+                .status(response.getStatus())
+                .expiresAt(response.getExpiresAt())
                 .build();
     }
 }

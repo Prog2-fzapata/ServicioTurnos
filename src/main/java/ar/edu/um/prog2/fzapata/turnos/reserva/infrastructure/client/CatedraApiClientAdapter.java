@@ -76,41 +76,6 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
     private final RetryTemplate catedraHoldRetryTemplate;
     private final CatedraMapper catedraMapper;
 
-    // El cuerpo de un error puede no ser JSON o no traer code
-    private String codeOf(RestClientResponseException e) {
-        try {
-            ProblemResponse problem = e.getResponseBodyAs(ProblemResponse.class);
-            String code = problem == null ? null : problem.getCode();
-            return code != null && SAFE_CODE.matcher(code).matches() ? code : null;
-        } catch (RestClientException | IllegalStateException unreadable) {
-            return null;
-        }
-    }
-
-    // Los mensajes y el log llevan solo el status y el code: nunca el cuerpo, el JWT ni datos del paciente. Sin la
-    // excepción original como causa: su mensaje trae el cuerpo y llegaría al log con la traza de un error inesperado
-    private RuntimeException translate(RestClientResponseException e) {
-        int status = e.getStatusCode().value();
-        if (e.getStatusCode().is5xxServerError()) {
-            log.atWarn().setMessage("La cátedra respondió con un error del servidor").addKeyValue("status", status).log();
-            return new CatedraUnavailableException("La cátedra no está disponible (" + status + ")", null);
-        }
-        if (status == 401 || status == 403) {
-            log.atError().setMessage("La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT")
-                    .addKeyValue("status", status).log();
-            return new CatedraAuthenticationException(
-                    "La cátedra rechazó el JWT técnico (" + status + "): revisar CATEDRA_JWT", null);
-        }
-        String code = codeOf(e);
-        CatedraRejection rejection = REJECTIONS.get(status + ":" + code);
-        if (rejection != null) {
-            return new CatedraRejectedException(rejection);
-        }
-        log.atError().setMessage("La cátedra respondió con un error que turnos no esperaba")
-                .addKeyValue("status", status).addKeyValue("code", code).log();
-        return new CatedraResponseException("La cátedra respondió " + status + (code == null ? "" : " " + code), null);
-    }
-
     // ConnectException (rechazada) o HttpConnectTimeoutException: no se llegó a enviar nada
     boolean neverConnected(Throwable e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
@@ -119,50 +84,6 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
             }
         }
         return false;
-    }
-
-    // Se hace un intento y traduce las fallas del cliente HTTP a las excepciones de la aplicación
-    private <T> T attempt(Supplier<T> request) {
-        try {
-            return request.get(); // Aquí recién ejecuta la petición HTTP
-        } catch (RestClientResponseException e) {
-            throw translate(e);
-        } catch (ResourceAccessException e) {
-            if (neverConnected(e)) {
-                log.atWarn().setMessage("No se pudo conectar con la cátedra").log();
-                throw new CatedraNotReachedException("No se pudo conectar con la cátedra", e);
-            }
-            // Corte o timeout después de enviar: el pedido pudo haber llegado
-            log.atWarn().setMessage("La cátedra no respondió").addKeyValue("exception", e.getClass().getSimpleName())
-                    .log();
-            throw new CatedraUnavailableException("La cátedra no respondió", e);
-        } catch (RestClientException e) {
-            // Llegó una respuesta, pero su cuerpo no se pudo leer como JSON del contrato
-            throw new CatedraResponseException("La respuesta de la cátedra no se pudo leer", e);
-        }
-    }
-
-    // Le pide al template que ejecute attempt(request) según su política
-    private <T> T execute(RetryTemplate retryTemplate, Supplier<T> request) {
-        return retryTemplate.invoke(() -> attempt(request));
-    }
-
-    // Si response es null CatedraResponseException
-    private <T> T required(T response) {
-        if (response == null) {
-            throw new CatedraResponseException("La cátedra respondió sin cuerpo", null);
-        }
-        return response;
-    }
-
-    private long totalOf(ResponseEntity<?> response) {
-        String header = response.getHeaders().getFirst(TOTAL_COUNT_HEADER);
-        try {
-            return Long.parseLong(header);
-        } catch (NumberFormatException e) {
-            // También cubre la cabecera ausente: un total inventado engañaría a quien pagina
-            throw new CatedraResponseException("La cátedra respondió sin un " + TOTAL_COUNT_HEADER + " válido", e);
-        }
     }
 
     @Override
@@ -248,5 +169,84 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
         log.atInfo().setMessage("La cátedra canceló la reserva")
                 .addKeyValue("reservationProcessId", cancellation.getReservationProcessId()).log();
         return cancellation;
+    }
+
+    // Le pide al template que ejecute attempt(request) según su política
+    private <T> T execute(RetryTemplate retryTemplate, Supplier<T> request) {
+        return retryTemplate.invoke(() -> attempt(request));
+    }
+
+    // Se hace un intento y traduce las fallas del cliente HTTP a las excepciones de la aplicación
+    private <T> T attempt(Supplier<T> request) {
+        try {
+            return request.get(); // Aquí recién ejecuta la petición HTTP
+        } catch (RestClientResponseException e) {
+            throw translate(e);
+        } catch (ResourceAccessException e) {
+            if (neverConnected(e)) {
+                log.atWarn().setMessage("No se pudo conectar con la cátedra").log();
+                throw new CatedraNotReachedException("No se pudo conectar con la cátedra", e);
+            }
+            // Corte o timeout después de enviar: el pedido pudo haber llegado
+            log.atWarn().setMessage("La cátedra no respondió").addKeyValue("exception", e.getClass().getSimpleName())
+                    .log();
+            throw new CatedraUnavailableException("La cátedra no respondió", e);
+        } catch (RestClientException e) {
+            // Llegó una respuesta, pero su cuerpo no se pudo leer como JSON del contrato
+            throw new CatedraResponseException("La respuesta de la cátedra no se pudo leer", e);
+        }
+    }
+
+    // Los mensajes y el log llevan solo el status y el code: nunca el cuerpo, el JWT ni datos del paciente. Sin la
+    // excepción original como causa: su mensaje trae el cuerpo y llegaría al log con la traza de un error inesperado
+    private RuntimeException translate(RestClientResponseException e) {
+        int status = e.getStatusCode().value();
+        if (e.getStatusCode().is5xxServerError()) {
+            log.atWarn().setMessage("La cátedra respondió con un error del servidor").addKeyValue("status", status).log();
+            return new CatedraUnavailableException("La cátedra no está disponible (" + status + ")", null);
+        }
+        if (status == 401 || status == 403) {
+            log.atError().setMessage("La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT")
+                    .addKeyValue("status", status).log();
+            return new CatedraAuthenticationException(
+                    "La cátedra rechazó el JWT técnico (" + status + "): revisar CATEDRA_JWT", null);
+        }
+        String code = codeOf(e);
+        CatedraRejection rejection = REJECTIONS.get(status + ":" + code);
+        if (rejection != null) {
+            return new CatedraRejectedException(rejection);
+        }
+        log.atError().setMessage("La cátedra respondió con un error que turnos no esperaba")
+                .addKeyValue("status", status).addKeyValue("code", code).log();
+        return new CatedraResponseException("La cátedra respondió " + status + (code == null ? "" : " " + code), null);
+    }
+
+    // El cuerpo de un error puede no ser JSON o no traer code
+    private String codeOf(RestClientResponseException e) {
+        try {
+            ProblemResponse problem = e.getResponseBodyAs(ProblemResponse.class);
+            String code = problem == null ? null : problem.getCode();
+            return code != null && SAFE_CODE.matcher(code).matches() ? code : null;
+        } catch (RestClientException | IllegalStateException unreadable) {
+            return null;
+        }
+    }
+
+    // Si response es null CatedraResponseException
+    private <T> T required(T response) {
+        if (response == null) {
+            throw new CatedraResponseException("La cátedra respondió sin cuerpo", null);
+        }
+        return response;
+    }
+
+    private long totalOf(ResponseEntity<?> response) {
+        String header = response.getHeaders().getFirst(TOTAL_COUNT_HEADER);
+        try {
+            return Long.parseLong(header);
+        } catch (NumberFormatException e) {
+            // También cubre la cabecera ausente: un total inventado engañaría a quien pagina
+            throw new CatedraResponseException("La cátedra respondió sin un " + TOTAL_COUNT_HEADER + " válido", e);
+        }
     }
 }

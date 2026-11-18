@@ -20,14 +20,6 @@ public class EventResultLogger {
 
     private final TransitionOutcomeLogger transitionOutcomeLogger;
 
-    // El pedido de teléfono no cambia el estado: completa los datos de una reserva que ya espera el teléfono, y la app
-    // lo ve en canSubmitPhone. Con el mensaje genérico no se entendería qué pasó
-    private static boolean isPhoneRequestThatCompletedData(CatedraEvent event, TransitionResult transition) {
-        return transition.outcome() == TransitionOutcome.DATA_COMPLETED
-                && CatedraEventType.fromWireName(event.eventType())
-                        .filter(type -> type == CatedraEventType.ADDITIONAL_INFORMATION_REQUESTED).isPresent();
-    }
-
     public void log(CatedraEvent event, EventResult result) {
         switch (result.outcome()) {
             case PROCESSED -> {
@@ -50,5 +42,13 @@ public class EventResultLogger {
             case UNKNOWN_TYPE -> LogFields.origin(log.atWarn().setMessage("Tipo de evento que no se trata, se ignora"),
                     event.eventType(), event.eventId()).log();
         }
+    }
+
+    // El pedido de teléfono no cambia el estado: completa los datos de una reserva que ya espera el teléfono, y la app
+    // lo ve en canSubmitPhone. Con el mensaje genérico no se entendería qué pasó
+    private static boolean isPhoneRequestThatCompletedData(CatedraEvent event, TransitionResult transition) {
+        return transition.outcome() == TransitionOutcome.DATA_COMPLETED
+                && CatedraEventType.fromWireName(event.eventType())
+                        .filter(type -> type == CatedraEventType.ADDITIONAL_INFORMATION_REQUESTED).isPresent();
     }
 }

@@ -13,11 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class ExpirationRoundLogger {
 
-    // status es el estado en que estaba la reserva cuando se decidió
-    private static void logged(LoggingEventBuilder event, ExpirationResult result) {
-        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
-    }
-
     public void log(List<ExpirationResult> results) {
         for (ExpirationResult result : results) {
             switch (result.outcome()) {
@@ -32,5 +27,10 @@ public class ExpirationRoundLogger {
                         + "reintenta en la próxima vuelta"), result);
             }
         }
+    }
+
+    // status es el estado en que estaba la reserva cuando se decidió
+    private static void logged(LoggingEventBuilder event, ExpirationResult result) {
+        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
     }
 }

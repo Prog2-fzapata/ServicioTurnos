@@ -12,10 +12,6 @@ public final class PhoneNumber {
     private PhoneNumber() {
     }
 
-    private static String clean(String raw) {
-        return SEPARATORS.matcher(raw).replaceAll("");
-    }
-
     public static boolean isValid(String raw) {
         return raw != null && VALID.matcher(clean(raw)).matches();
     }
@@ -25,5 +21,9 @@ public final class PhoneNumber {
             throw new IllegalArgumentException("El teléfono no cumple el formato");
         }
         return clean(raw);
+    }
+
+    private static String clean(String raw) {
+        return SEPARATORS.matcher(raw).replaceAll("");
     }
 }
