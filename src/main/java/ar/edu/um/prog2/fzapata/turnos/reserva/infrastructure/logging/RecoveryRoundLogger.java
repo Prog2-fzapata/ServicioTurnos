@@ -13,11 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class RecoveryRoundLogger {
 
-    // status es el estado en que estaba la reserva cuando se decidió
-    private static void logged(LoggingEventBuilder event, RecoveryResult result) {
-        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
-    }
-
     public void log(List<RecoveryResult> results) {
         for (RecoveryResult result : results) {
             switch (result.outcome()) {
@@ -36,5 +31,10 @@ public class RecoveryRoundLogger {
             }
         }
         log.atInfo().setMessage("Recuperación al arrancar terminada").addKeyValue("reviewed", results.size()).log();
+    }
+
+    // status es el estado en que estaba la reserva cuando se decidió
+    private static void logged(LoggingEventBuilder event, RecoveryResult result) {
+        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
     }
 }

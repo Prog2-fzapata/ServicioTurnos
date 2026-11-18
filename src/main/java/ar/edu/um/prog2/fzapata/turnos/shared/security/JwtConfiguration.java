@@ -37,13 +37,6 @@ public class JwtConfiguration {
         return decoder;
     }
 
-    // El validador por defecto controla la vigencia (exp, nbf) pero acepta un token sin exp, que no vencería nunca
-    private static JwtTimestampValidator timestampValidatorRequiringExpiry() {
-        JwtTimestampValidator validator = new JwtTimestampValidator();
-        validator.setAllowEmptyExpiryClaim(false);
-        return validator;
-    }
-
     // Falla al arrancar, con un mensaje claro, en vez de aceptar tokens con una clave débil
     static SecretKey secretKey(String base64Secret) {
         byte[] bytes;
@@ -57,5 +50,12 @@ public class JwtConfiguration {
                     + " bits (" + MIN_SECRET_BYTES + " bytes); debe ser el mismo valor que usa catálogo");
         }
         return new SecretKeySpec(bytes, ALGORITHM.getName());
+    }
+
+    // El validador por defecto controla la vigencia (exp, nbf) pero acepta un token sin exp, que no vencería nunca
+    private static JwtTimestampValidator timestampValidatorRequiringExpiry() {
+        JwtTimestampValidator validator = new JwtTimestampValidator();
+        validator.setAllowEmptyExpiryClaim(false);
+        return validator;
     }
 }

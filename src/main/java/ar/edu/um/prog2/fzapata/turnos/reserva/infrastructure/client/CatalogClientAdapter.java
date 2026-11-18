@@ -31,31 +31,14 @@ public class CatalogClientAdapter implements CatalogClient {
     private final CatalogProfessionalMapper catalogProfessionalMapper;
     private final CatalogAccountMapper catalogAccountMapper;
 
-    // Se decide solo por el status; el mensaje y el log nunca incluyen el cuerpo de la respuesta ni el JWT. Sin la
-    // excepción original como causa: su mensaje trae el cuerpo y llegaría al log con la traza de un error inesperado
-    private RuntimeException translate(RestClientResponseException e) {
-        HttpStatusCode status = e.getStatusCode();
-        if (status.is5xxServerError()) {
-            log.atWarn().setMessage("Catálogo respondió con un error del servidor")
-                    .addKeyValue("status", status.value()).log();
-            return new CatalogUnavailableException("Catálogo no está disponible (" + status.value() + ")", null);
-        }
-        log.atError().setMessage("Catálogo respondió con un status inesperado, revisar que ambos servicios "
-                + "compartan el JWT_SECRET").addKeyValue("status", status.value()).log();
-        return new CatalogResponseException("Catálogo respondió " + status.value(), null);
+    @Override
+    public Optional<CatalogProfessional> findProfessional(Long id) {
+        return catalogRetryTemplate.invoke(() -> fetch(id));
     }
 
-    // Sin conexión o timeout no hay respuesta que interpretar; si llegó pero no se pudo leer, es un desajuste
-    private RuntimeException translateFailure(RestClientException e) {
-        if (e instanceof RestClientResponseException responseException) {
-            return translate(responseException);
-        }
-        if (e instanceof ResourceAccessException) {
-            log.atWarn().setMessage("No se pudo conectar con catálogo")
-                    .addKeyValue("exception", e.getClass().getSimpleName()).log();
-            return new CatalogUnavailableException("No se pudo conectar con catálogo", e);
-        }
-        return new CatalogResponseException("La respuesta de catálogo no se pudo leer", e);
+    @Override
+    public CatalogAccount findAccount() {
+        return catalogRetryTemplate.invoke(this::fetchAccount);
     }
 
     // Un intento. Solo CatalogUnavailableException se reintenta: lo demás no mejora repitiendo el pedido
@@ -76,6 +59,33 @@ public class CatalogClientAdapter implements CatalogClient {
         }
     }
 
+    // Sin conexión o timeout no hay respuesta que interpretar; si llegó pero no se pudo leer, es un desajuste
+    private RuntimeException translateFailure(RestClientException e) {
+        if (e instanceof RestClientResponseException responseException) {
+            return translate(responseException);
+        }
+        if (e instanceof ResourceAccessException) {
+            log.atWarn().setMessage("No se pudo conectar con catálogo")
+                    .addKeyValue("exception", e.getClass().getSimpleName()).log();
+            return new CatalogUnavailableException("No se pudo conectar con catálogo", e);
+        }
+        return new CatalogResponseException("La respuesta de catálogo no se pudo leer", e);
+    }
+
+    // Se decide solo por el status; el mensaje y el log nunca incluyen el cuerpo de la respuesta ni el JWT. Sin la
+    // excepción original como causa: su mensaje trae el cuerpo y llegaría al log con la traza de un error inesperado
+    private RuntimeException translate(RestClientResponseException e) {
+        HttpStatusCode status = e.getStatusCode();
+        if (status.is5xxServerError()) {
+            log.atWarn().setMessage("Catálogo respondió con un error del servidor")
+                    .addKeyValue("status", status.value()).log();
+            return new CatalogUnavailableException("Catálogo no está disponible (" + status.value() + ")", null);
+        }
+        log.atError().setMessage("Catálogo respondió con un status inesperado, revisar que ambos servicios "
+                + "compartan el JWT_SECRET").addKeyValue("status", status.value()).log();
+        return new CatalogResponseException("Catálogo respondió " + status.value(), null);
+    }
+
     private CatalogAccount fetchAccount() {
         try {
             CatalogAccountResponse response = catalogRestClient.get()
@@ -89,15 +99,5 @@ public class CatalogClientAdapter implements CatalogClient {
         } catch (RestClientException e) {
             throw translateFailure(e);
         }
-    }
-
-    @Override
-    public Optional<CatalogProfessional> findProfessional(Long id) {
-        return catalogRetryTemplate.invoke(() -> fetch(id));
-    }
-
-    @Override
-    public CatalogAccount findAccount() {
-        return catalogRetryTemplate.invoke(this::fetchAccount);
     }
 }

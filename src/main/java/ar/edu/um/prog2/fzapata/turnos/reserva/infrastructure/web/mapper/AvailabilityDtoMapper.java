@@ -10,14 +10,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.web.dto.SlotRespons
 @Component
 public class AvailabilityDtoMapper {
 
-    private SlotResponse toResponse(Slot slot) {
-        return SlotResponse.builder()
-                .date(slot.getDate())
-                .startTime(slot.getStartTime())
-                .endTime(slot.getEndTime())
-                .build();
-    }
-
     public AvailabilityResponse toResponse(Availability domain) {
         if (domain == null) return null;
         return AvailabilityResponse.builder()
@@ -25,6 +17,14 @@ public class AvailabilityDtoMapper {
                 .from(domain.getFrom())
                 .to(domain.getTo())
                 .slots(domain.getSlots().stream().map(this::toResponse).toList())
+                .build();
+    }
+
+    private SlotResponse toResponse(Slot slot) {
+        return SlotResponse.builder()
+                .date(slot.getDate())
+                .startTime(slot.getStartTime())
+                .endTime(slot.getEndTime())
                 .build();
     }
 }

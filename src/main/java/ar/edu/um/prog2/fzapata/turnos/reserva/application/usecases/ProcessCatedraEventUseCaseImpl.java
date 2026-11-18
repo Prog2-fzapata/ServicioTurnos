@@ -29,6 +29,21 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
     private final ApplyReservationTransitionUseCase applyReservationTransition;
     private final Clock clock;
 
+    // Un evento que no se puede aplicar (duplicado, tipo o proceso desconocidos, paso que el diagrama no permite) se
+    // registra igual: reentregarlo no lo va a arreglar y no debe trabar la lectura de los que siguen. Si la versión
+    // choca, la excepción deshace también el registro y quien llama repite el evento entero
+    @Override
+    @Transactional
+    public EventResult processEvent(CatedraEvent event) {
+        if (processedEventRepository.existsById(event.eventId())) {
+            return EventResult.without(EventOutcome.DUPLICATE);
+        }
+        EventResult result = apply(event);
+        processedEventRepository.save(ProcessedEvent.builder().eventId(event.eventId())
+                .eventType(event.eventType()).processedAt(clock.instant()).build());
+        return result;
+    }
+
     private EventResult apply(CatedraEvent event) {
         Optional<ReservationTransition> transition = event.toTransition();
         if (transition.isEmpty()) {
@@ -43,20 +58,5 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
         TransitionResult result = applyReservationTransition.applyTransitionOnce(processId, transition.get())
                 .orElseThrow(() -> new ReservationProcessNotFoundException(processId));
         return EventResult.processed(result);
-    }
-
-    // Un evento que no se puede aplicar (duplicado, tipo o proceso desconocidos, paso que el diagrama no permite) se
-    // registra igual: reentregarlo no lo va a arreglar y no debe trabar la lectura de los que siguen. Si la versión
-    // choca, la excepción deshace también el registro y quien llama repite el evento entero
-    @Override
-    @Transactional
-    public EventResult processEvent(CatedraEvent event) {
-        if (processedEventRepository.existsById(event.eventId())) {
-            return EventResult.without(EventOutcome.DUPLICATE);
-        }
-        EventResult result = apply(event);
-        processedEventRepository.save(ProcessedEvent.builder().eventId(event.eventId())
-                .eventType(event.eventType()).processedAt(clock.instant()).build());
-        return result;
     }
 }
