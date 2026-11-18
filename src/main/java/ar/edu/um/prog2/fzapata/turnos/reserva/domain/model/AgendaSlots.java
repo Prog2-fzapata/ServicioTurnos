@@ -43,7 +43,7 @@ public final class AgendaSlots {
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
             // Añade los slots enabled de esas fechas al map
             for (CatalogSchedule schedule : professional.getWeeklySchedules()) {
-                if (schedule.isEnabled() && schedule.getDayOfWeek() == date.getDayOfWeek()) {
+                if (schedule.isEnabled() && date.getDayOfWeek().equals(schedule.getDayOfWeek())) {
                     addSlots(slots, date, schedule);
                 }
             }
