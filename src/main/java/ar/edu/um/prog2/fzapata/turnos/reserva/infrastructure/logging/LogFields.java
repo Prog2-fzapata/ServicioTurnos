@@ -2,6 +2,8 @@ package ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.logging;
 
 import org.slf4j.spi.LoggingEventBuilder;
 
+import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.RoundResult;
+
 // Campos que comparten los loggers de una reserva. Salen como campos del JSON, así se filtra por reservationId o por
 // userId sin depender de la redacción del mensaje. El usuario es su id interno: nunca su nombre ni su teléfono
 final class LogFields {
@@ -19,5 +21,10 @@ final class LogFields {
     static LoggingEventBuilder reservation(LoggingEventBuilder event, Long reservationId, String userId) {
         LoggingEventBuilder withReservation = event.addKeyValue("reservationId", reservationId);
         return userId == null ? withReservation : withReservation.addKeyValue("userId", userId);
+    }
+
+    // La reserva de un resultado de ronda y su estado: el que tenía cuando se decidió
+    static LoggingEventBuilder round(LoggingEventBuilder event, RoundResult result) {
+        return reservation(event, result.processId(), null).addKeyValue("status", result.from().name());
     }
 }
