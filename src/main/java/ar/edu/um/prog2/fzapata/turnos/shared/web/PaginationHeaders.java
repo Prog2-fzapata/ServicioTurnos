@@ -16,13 +16,6 @@ public final class PaginationHeaders {
     private PaginationHeaders() {
     }
 
-    // La consulta del pedido actual ya viene codificada (ana%20g%C3%B3mez): codificarla otra vez la dañaría
-    private static String link(UriComponentsBuilder base, int page, int size, String rel) {
-        String uri = base.cloneBuilder().replaceQueryParam("page", page).replaceQueryParam("size", size)
-                .build().toUriString();
-        return "<" + uri + ">; rel=\"" + rel + "\"";
-    }
-
     // page: la página actual, desde 0. La última es la 0 si no hay elementos
     public static HttpHeaders create(UriComponentsBuilder currentRequest, int page, int size, long totalElements) {
         int totalPages = (int) Math.ceil((double) totalElements / size);
@@ -41,5 +34,12 @@ public final class PaginationHeaders {
         headers.add(TOTAL_COUNT, Long.toString(totalElements));
         headers.add(HttpHeaders.LINK, String.join(",", links));
         return headers;
+    }
+
+    // La consulta del pedido actual ya viene codificada (ana%20g%C3%B3mez): codificarla otra vez la dañaría
+    private static String link(UriComponentsBuilder base, int page, int size, String rel) {
+        String uri = base.cloneBuilder().replaceQueryParam("page", page).replaceQueryParam("size", size)
+                .build().toUriString();
+        return "<" + uri + ">; rel=\"" + rel + "\"";
     }
 }

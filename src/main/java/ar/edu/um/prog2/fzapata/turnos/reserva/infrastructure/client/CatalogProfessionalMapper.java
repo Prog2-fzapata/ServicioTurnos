@@ -13,25 +13,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.dto.CatalogS
 @Component
 public class CatalogProfessionalMapper {
 
-    private CatalogSchedule toDomainModel(CatalogScheduleResponse response) {
-        return CatalogSchedule.builder()
-                .id(response.getId())
-                .dayOfWeek(response.getDayOfWeek())
-                .startTime(response.getStartTime())
-                .endTime(response.getEndTime())
-                .slotDurationMinutes(response.getSlotDurationMinutes())
-                .enabled(response.isEnabled())
-                .build();
-    }
-
-    // Sin este dato no se sabe si el profesional se puede reservar: se falla en lugar de suponer un valor
-    private boolean requireCategoryEnabled(CatalogProfessionalResponse response) {
-        if (response.getCategoryEnabled() == null) {
-            throw new CatalogResponseException("Catálogo no informó categoryEnabled", null);
-        }
-        return response.getCategoryEnabled();
-    }
-
     public CatalogProfessional toDomainModel(CatalogProfessionalResponse response) {
         if (response == null) return null;
         List<CatalogScheduleResponse> schedules = response.getWeeklySchedules() == null ? List.of()
@@ -45,6 +26,25 @@ public class CatalogProfessionalMapper {
                 .lastName(response.getLastName())
                 .enabled(response.isEnabled())
                 .weeklySchedules(schedules.stream().map(this::toDomainModel).toList())
+                .build();
+    }
+
+    // Sin este dato no se sabe si el profesional se puede reservar: se falla en lugar de suponer un valor
+    private boolean requireCategoryEnabled(CatalogProfessionalResponse response) {
+        if (response.getCategoryEnabled() == null) {
+            throw new CatalogResponseException("Catálogo no informó categoryEnabled", null);
+        }
+        return response.getCategoryEnabled();
+    }
+
+    private CatalogSchedule toDomainModel(CatalogScheduleResponse response) {
+        return CatalogSchedule.builder()
+                .id(response.getId())
+                .dayOfWeek(response.getDayOfWeek())
+                .startTime(response.getStartTime())
+                .endTime(response.getEndTime())
+                .slotDurationMinutes(response.getSlotDurationMinutes())
+                .enabled(response.isEnabled())
                 .build();
     }
 }

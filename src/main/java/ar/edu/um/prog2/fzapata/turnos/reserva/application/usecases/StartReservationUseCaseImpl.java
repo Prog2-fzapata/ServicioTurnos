@@ -14,8 +14,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraRejec
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
@@ -63,15 +61,48 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     private record Patient(String firstName, String lastName) {
     }
 
-    // Un intento termina bien (reserved) o, si el hold se perdió, pide otro y guarda lo que se lanzaría si no quedan
-    private record Attempt(ReservationProcess reserved, RuntimeException failureIfExhausted) {
+    // Un intento termina bien (Reserved) o, si el hold se perdió, pide otro y guarda lo que se lanzaría si no quedan
+    // (Lost)
+    private sealed interface Attempt {
 
-        static Attempt success(ReservationProcess reserved) {
-            return new Attempt(reserved, null);
+        record Reserved(ReservationProcess process) implements Attempt {
         }
 
-        static Attempt retry(RuntimeException failureIfExhausted) {
-            return new Attempt(null, failureIfExhausted);
+        record Lost(RuntimeException failureIfExhausted) implements Attempt {
+        }
+    }
+
+    @Override
+    public Optional<ReservationProcess> startReservation(ReservationRequest request) {
+        // Por Http no llega null, por si otro adaptador lo llama y no lo verifica
+        Objects.requireNonNull(request, "La solicitud de reserva es obligatoria");
+        Optional<CatalogProfessional> found = catalogClient.findProfessional(request.professionalId());
+        if (found.isEmpty()) {
+            return Optional.empty(); // ProfessionalNotFoundException en Service
+        }
+        // Extraemos el professional del optional
+        CatalogProfessional professional = found.get();
+        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría esten enabled
+
+        // Consulta la agenda del día de la request y devuelve slot si está disponible
+        Slot slot = requireSlot(professional, request);
+        // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
+        Patient patient = requirePatient(catalogClient.findAccount());
+        // Iteramos hasta maxAttempts
+        for (int number = 1;; number++) {
+            // Armamos el ReservationProcess y lo guardamos con el repository
+            ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
+            // Intenta crear el hold
+            switch (attempt(created, request, patient)) {
+                case Attempt.Reserved reserved -> {
+                    return Optional.of(reserved.process());
+                }
+                case Attempt.Lost lost -> {
+                    if (number >= holdRetryPolicy.maxAttempts()) {
+                        throw lost.failureIfExhausted();
+                    }
+                }
+            }
         }
     }
 
@@ -101,6 +132,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
         return new Patient(firstName, lastName);
     }
+
     // Retorna un nuevo ReservationProcess con builder.
     private ReservationProcess newProcess(ReservationRequest request, CatalogProfessional professional, Slot slot,
             Patient patient) {
@@ -120,17 +152,30 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
                 .updatedAt(now).build();
     }
 
-    // Un paso que acá debe aplicarse siempre: si el diagrama lo rechaza, el proceso no está donde este caso de uso
-    // cree. Que ya estuviera en el estado pedido es posible: la cátedra publica el pedido de teléfono justo después de
-    // confirmar y su evento puede procesarse antes de que este paso llegue
-    private ReservationProcess transition(Long processId, ReservationTransition transition) {
-        TransitionResult result = applyReservationTransition.applyTransition(processId, transition)
-                .orElseThrow(() -> new ReservationProcessNotFoundException(processId));
-        if (result.outcome() == TransitionOutcome.REJECTED) {
-            throw new IllegalStateException("El proceso " + processId + " no pudo pasar de " + result.from() + " a "
-                    + transition.target());
+    // Un intento: el hold y su confirmación sobre un proceso nuevo
+    private Attempt attempt(ReservationProcess created, ReservationRequest request, Patient patient) {
+        Long processId = created.getId();
+        Hold hold;
+        try {
+            hold = catedraApiClient.createHold(request.professionalId(), request.date(), request.startTime(),
+                    request.userId());
+        // Atrapamos las excepciones y hacemos el cierre del intento del ReservationProcess registrando el error
+        } catch (CatedraRejectedException e) {
+            RuntimeException failure = HoldRejectionTranslator.translate(e.getRejection(), request.professionalId());
+            close(processId, ReservationStatus.FAILED, e.getRejection().name(), failure);
+            throw failure;
+        } catch (CatedraNotReachedException e) {
+            // Nada llegó a la cátedra: no hay hold perdido que investigar
+            close(processId, ReservationStatus.FAILED, CATEDRA_NOT_REACHED, e);
+            throw e;
+        } catch (CatedraUnavailableException e) {
+            close(processId, ReservationStatus.FAILED, HOLD_RESULT_UNKNOWN, e);
+            return afterLostHold(request, e);
+        } catch (RuntimeException e) {
+            close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, e);
+            throw e;
         }
-        return result.process();
+        return confirm(processId, hold, request, patient);
     }
 
     // Cierra el intento. Aplicando la transición
@@ -143,18 +188,6 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
     }
 
-    private RuntimeException toException(CatedraRejection rejection, ReservationRequest request) {
-        return switch (rejection) {
-            case SLOT_ALREADY_HELD, SLOT_ALREADY_RESERVED -> new SlotUnavailableException();
-            case PROFESSIONAL_DISABLED -> new ProfessionalDisabledException(
-                    "La cátedra informa deshabilitado al profesional " + request.professionalId());
-            case PROFESSIONAL_NOT_FOUND -> new ProfessionalNotFoundException(request.professionalId());
-            case INVALID_SLOT -> new InvalidSlotException(
-                    "La cátedra no reconoce el horario en la agenda del profesional " + request.professionalId());
-            default -> new CatedraResponseException("La cátedra rechazó el hold con " + rejection, null);
-        };
-    }
-
     // D80: sin forma de recuperar el hold perdido, se mira qué figura ocupado. Si el horario aparece ocupado (HELD o
     // CONFIRMED) no se asume que el hold es nuestro; si está libre se puede pedir otro
     private Attempt afterLostHold(ReservationRequest request, CatedraUnavailableException lost) {
@@ -163,22 +196,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         if (occupied) {
             throw new SlotUnavailableException();
         }
-        return Attempt.retry(lost);
-    }
-
-    // El hold ya no existe (venció o desapareció): nada quedó bloqueado, así que se puede pedir otro
-    private Attempt afterConfirmRejection(Long processId, CatedraRejectedException rejected) {
-        CatedraRejection rejection = rejected.getRejection();
-        if (rejection == CatedraRejection.HOLD_EXPIRED || rejection == CatedraRejection.HOLD_NOT_FOUND) {
-            RuntimeException expired = new ReservationExpiredException();
-            close(processId, rejection == CatedraRejection.HOLD_EXPIRED ? ReservationStatus.EXPIRED
-                    : ReservationStatus.FAILED, rejection.name(), expired);
-            return Attempt.retry(expired);
-        }
-        RuntimeException unexpected = new CatedraResponseException(
-                "La cátedra rechazó la confirmación con " + rejection, rejected);
-        close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, unexpected);
-        throw unexpected;
+        return new Attempt.Lost(lost);
     }
 
     private Attempt confirm(Long processId, Hold hold, ReservationRequest request, Patient patient) {
@@ -203,64 +221,35 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, e);
             throw e;
         }
-        return Attempt.success(transition(processId,
+        return new Attempt.Reserved(transition(processId,
                 ReservationTransition.builder().target(ReservationStatus.WAITING_PHONE).expiresAt(expiresAt).build()));
     }
 
-    // Un intento: el hold y su confirmación sobre un proceso nuevo
-    private Attempt attempt(ReservationProcess created, ReservationRequest request, Patient patient) {
-        Long processId = created.getId();
-        Hold hold;
-        try {
-            hold = catedraApiClient.createHold(request.professionalId(), request.date(), request.startTime(),
-                    request.userId());
-        // Atrapamos las excepciones y hacemos el cierre del intento del ReservationProcess registrando el error
-        } catch (CatedraRejectedException e) {
-            RuntimeException failure = toException(e.getRejection(), request);
-            close(processId, ReservationStatus.FAILED, e.getRejection().name(), failure);
-            throw failure;
-        } catch (CatedraNotReachedException e) {
-            // Nada llegó a la cátedra: no hay hold perdido que investigar
-            close(processId, ReservationStatus.FAILED, CATEDRA_NOT_REACHED, e);
-            throw e;
-        } catch (CatedraUnavailableException e) {
-            close(processId, ReservationStatus.FAILED, HOLD_RESULT_UNKNOWN, e);
-            return afterLostHold(request, e);
-        } catch (RuntimeException e) {
-            close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, e);
-            throw e;
+    // Un paso que acá debe aplicarse siempre: si el diagrama lo rechaza, el proceso no está donde este caso de uso
+    // cree. Que ya estuviera en el estado pedido es posible: la cátedra publica el pedido de teléfono justo después de
+    // confirmar y su evento puede procesarse antes de que este paso llegue
+    private ReservationProcess transition(Long processId, ReservationTransition transition) {
+        TransitionResult result = applyReservationTransition.applyTransition(processId, transition)
+                .orElseThrow(() -> new ReservationProcessNotFoundException(processId));
+        if (result.outcome() == TransitionOutcome.REJECTED) {
+            throw new IllegalStateException("El proceso " + processId + " no pudo pasar de " + result.from() + " a "
+                    + transition.target());
         }
-        return confirm(processId, hold, request, patient);
+        return result.process();
     }
 
-    @Override
-    public Optional<ReservationProcess> startReservation(ReservationRequest request) {
-        // Por Http no llega null, por si otro adaptador lo llama y no lo verifica
-        Objects.requireNonNull(request, "La solicitud de reserva es obligatoria");
-        Optional<CatalogProfessional> found = catalogClient.findProfessional(request.professionalId());
-        if (found.isEmpty()) {
-            return Optional.empty(); // ProfessionalNotFoundException en Service
+    // El hold ya no existe (venció o desapareció): nada quedó bloqueado, así que se puede pedir otro
+    private Attempt afterConfirmRejection(Long processId, CatedraRejectedException rejected) {
+        CatedraRejection rejection = rejected.getRejection();
+        if (rejection == CatedraRejection.HOLD_EXPIRED || rejection == CatedraRejection.HOLD_NOT_FOUND) {
+            RuntimeException expired = new ReservationExpiredException();
+            close(processId, rejection == CatedraRejection.HOLD_EXPIRED ? ReservationStatus.EXPIRED
+                    : ReservationStatus.FAILED, rejection.name(), expired);
+            return new Attempt.Lost(expired);
         }
-        // Extraemos el professional del optional
-        CatalogProfessional professional = found.get();
-        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría esten enabled
-
-        // Consulta la agenda del día de la request y devuelve slot si está disponible
-        Slot slot = requireSlot(professional, request);
-        // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
-        Patient patient = requirePatient(catalogClient.findAccount());
-        // Iteramos hasta maxAttempts
-        for (int number = 1;; number++) {
-            // Armamos el ReservationProcess y lo guardamos con el repository
-            ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
-            // Intenta crear el hold
-            Attempt attempt = attempt(created, request, patient);
-            if (attempt.reserved() != null) {
-                return Optional.of(attempt.reserved());
-            }
-            if (number >= holdRetryPolicy.maxAttempts()) {
-                throw attempt.failureIfExhausted();
-            }
-        }
+        RuntimeException unexpected = new CatedraResponseException(
+                "La cátedra rechazó la confirmación con " + rejection, rejected);
+        close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, unexpected);
+        throw unexpected;
     }
 }

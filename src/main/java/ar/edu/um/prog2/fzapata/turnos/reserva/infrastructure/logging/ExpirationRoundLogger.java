@@ -13,24 +13,20 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class ExpirationRoundLogger {
 
-    // status es el estado en que estaba la reserva cuando se decidió
-    private static void logged(LoggingEventBuilder event, ExpirationResult result) {
-        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
-    }
-
     public void log(List<ExpirationResult> results) {
         for (ExpirationResult result : results) {
-            switch (result.outcome()) {
-                case EXPIRED -> logged(log.atInfo().setMessage("Vencimiento: reserva expirada"), result);
-                case CONFIRMED_BY_CATEDRA -> logged(log.atWarn().setMessage("Vencimiento: la cátedra la tenía "
-                        + "confirmada, se repara a CONFIRMED en vez de expirarla"), result);
-                case UNCHANGED -> logged(log.atInfo().setMessage("Vencimiento: otra operación ya había cambiado la "
-                        + "reserva"), result);
-                case UNVERIFIED -> logged(log.atWarn().setMessage("Vencimiento: no se pudo comprobar con la cátedra, "
-                        + "no se expira y se reintenta en la próxima vuelta"), result);
-                case CONFLICT -> logged(log.atWarn().setMessage("Vencimiento: la versión chocó demasiadas veces, se "
-                        + "reintenta en la próxima vuelta"), result);
-            }
+            LoggingEventBuilder event = switch (result.outcome()) {
+                case EXPIRED -> log.atInfo().setMessage("Vencimiento: reserva expirada");
+                case CONFIRMED_BY_CATEDRA -> log.atWarn().setMessage("Vencimiento: la cátedra la tenía "
+                        + "confirmada, se repara a CONFIRMED en vez de expirarla");
+                case UNCHANGED -> log.atInfo().setMessage("Vencimiento: otra operación ya había cambiado la "
+                        + "reserva");
+                case UNVERIFIED -> log.atWarn().setMessage("Vencimiento: no se pudo comprobar con la cátedra, "
+                        + "no se expira y se reintenta en la próxima vuelta");
+                case CONFLICT -> log.atWarn().setMessage("Vencimiento: la versión chocó demasiadas veces, se "
+                        + "reintenta en la próxima vuelta");
+            };
+            LogFields.round(event, result).log();
         }
     }
 }

@@ -15,6 +15,23 @@ public final class AgendaSlots {
     private AgendaSlots() {
     }
 
+    // Retorna los horarios de ese día. Ordenados por fecha y hora de inicio, ambas fechas inclusivas
+    public static NavigableMap<LocalDateTime, Slot> generate(CatalogProfessional professional, LocalDate from,
+            LocalDate to) {
+        // NavigableMap tiene métodos para consultar por posición de orden, treemap, map ordenado sin duplicados
+        NavigableMap<LocalDateTime, Slot> slots = new TreeMap<>();
+        // Desde from hasta que !date.isAfter(to) sea falso.
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            // Añade los slots enabled de esas fechas al map
+            for (CatalogSchedule schedule : professional.getWeeklySchedules()) {
+                if (schedule.isEnabled() && date.getDayOfWeek().equals(schedule.getDayOfWeek())) {
+                    addSlots(slots, date, schedule);
+                }
+            }
+        }
+        return slots;
+    }
+
     // Parte de startTime y avanza de a slotDurationMinutes mientras el slot termine en o antes de endTime
     private static void addSlots(Map<LocalDateTime, Slot> slots, LocalDate date, CatalogSchedule schedule) {
         long duration = schedule.getSlotDurationMinutes();
@@ -32,22 +49,5 @@ public final class AgendaSlots {
             slots.putIfAbsent(LocalDateTime.of(date, start), Slot.builder().date(date).startTime(start).endTime(end).build());
             start = end;
         }
-    }
-
-    // Retorna los horarios de ese día. Ordenados por fecha y hora de inicio, ambas fechas inclusivas
-    public static NavigableMap<LocalDateTime, Slot> generate(CatalogProfessional professional, LocalDate from,
-            LocalDate to) {
-        // NavigableMap tiene métodos para consultar por posición de orden, treemap, map ordenado sin duplicados
-        NavigableMap<LocalDateTime, Slot> slots = new TreeMap<>();
-        // Desde from hasta que !date.isAfter(to) sea falso.
-        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            // Añade los slots enabled de esas fechas al map
-            for (CatalogSchedule schedule : professional.getWeeklySchedules()) {
-                if (schedule.isEnabled() && date.getDayOfWeek().equals(schedule.getDayOfWeek())) {
-                    addSlots(slots, date, schedule);
-                }
-            }
-        }
-        return slots;
     }
 }

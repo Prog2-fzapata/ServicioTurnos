@@ -30,6 +30,23 @@ public class CancelReservationUseCaseImpl implements CancelReservationUseCase {
     private final CatedraApiClient catedraApiClient;
     private final ApplyReservationTransitionUseCase applyReservationTransition;
 
+    @Override
+    public Optional<ReservationProcess> cancelReservation(Long id, String userId, String reason) {
+        Optional<ReservationProcess> found = reservationProcessRepository.findByIdAndUserId(id, userId);
+        if (found.isEmpty()) {
+            return found;
+        }
+        ReservationProcess process = found.get();
+        if (process.getStatus() == ReservationStatus.CANCELLED) {
+            return found;
+        }
+        if (process.getStatus() != ReservationStatus.CONFIRMED) {
+            throw new ReservationNotCancellableException(id, process.getStatus());
+        }
+        cancelInCatedra(process, reason);
+        return Optional.of(markAsCancelled(process, reason));
+    }
+
     private void cancelInCatedra(ReservationProcess process, String reason) {
         try {
             catedraApiClient.cancelAppointment(process.getReservationProcessId(), reason);
@@ -51,22 +68,5 @@ public class CancelReservationUseCaseImpl implements CancelReservationUseCase {
             throw new ReservationNotCancellableException(process.getId(), result.from());
         }
         return result.process();
-    }
-
-    @Override
-    public Optional<ReservationProcess> cancelReservation(Long id, String userId, String reason) {
-        Optional<ReservationProcess> found = reservationProcessRepository.findByIdAndUserId(id, userId);
-        if (found.isEmpty()) {
-            return found;
-        }
-        ReservationProcess process = found.get();
-        if (process.getStatus() == ReservationStatus.CANCELLED) {
-            return found;
-        }
-        if (process.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new ReservationNotCancellableException(id, process.getStatus());
-        }
-        cancelInCatedra(process, reason);
-        return Optional.of(markAsCancelled(process, reason));
     }
 }

@@ -13,27 +13,23 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class RecoveryRoundLogger {
 
-    // status es el estado en que estaba la reserva cuando se decidió
-    private static void logged(LoggingEventBuilder event, RecoveryResult result) {
-        event.addKeyValue("reservationId", result.processId()).addKeyValue("status", result.from().name()).log();
-    }
-
     public void log(List<RecoveryResult> results) {
         for (RecoveryResult result : results) {
-            switch (result.outcome()) {
-                case ORPHAN_FAILED -> logged(log.atWarn().setMessage("Recuperación: el pedido de hold quedó sin "
-                        + "resultado conocido, la reserva pasó a FAILED"), result);
-                case CONFIRMED_BY_CATEDRA -> logged(log.atWarn().setMessage("Recuperación: la cátedra la tenía "
-                        + "confirmada, se repara a CONFIRMED"), result);
-                case STILL_OPEN -> logged(log.atInfo().setMessage("Recuperación: la cátedra no la tiene confirmada, "
-                        + "se deja como está"), result);
-                case UNCHANGED -> logged(log.atInfo().setMessage("Recuperación: otra operación ya había cambiado la "
-                        + "reserva"), result);
-                case UNVERIFIED -> logged(log.atWarn().setMessage("Recuperación: no se pudo comprobar con la "
-                        + "cátedra, no se toca"), result);
-                case CONFLICT -> logged(log.atWarn().setMessage("Recuperación: la versión chocó demasiadas veces, "
-                        + "no se toca"), result);
-            }
+            LoggingEventBuilder event = switch (result.outcome()) {
+                case ORPHAN_FAILED -> log.atWarn().setMessage("Recuperación: el pedido de hold quedó sin "
+                        + "resultado conocido, la reserva pasó a FAILED");
+                case CONFIRMED_BY_CATEDRA -> log.atWarn().setMessage("Recuperación: la cátedra la tenía "
+                        + "confirmada, se repara a CONFIRMED");
+                case STILL_OPEN -> log.atInfo().setMessage("Recuperación: la cátedra no la tiene confirmada, "
+                        + "se deja como está");
+                case UNCHANGED -> log.atInfo().setMessage("Recuperación: otra operación ya había cambiado la "
+                        + "reserva");
+                case UNVERIFIED -> log.atWarn().setMessage("Recuperación: no se pudo comprobar con la "
+                        + "cátedra, no se toca");
+                case CONFLICT -> log.atWarn().setMessage("Recuperación: la versión chocó demasiadas veces, "
+                        + "no se toca");
+            };
+            LogFields.round(event, result).log();
         }
         log.atInfo().setMessage("Recuperación al arrancar terminada").addKeyValue("reviewed", results.size()).log();
     }
