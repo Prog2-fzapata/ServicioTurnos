@@ -14,8 +14,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraRejec
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalDisabledException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
@@ -63,15 +61,14 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     private record Patient(String firstName, String lastName) {
     }
 
-    // Un intento termina bien (reserved) o, si el hold se perdió, pide otro y guarda lo que se lanzaría si no quedan
-    private record Attempt(ReservationProcess reserved, RuntimeException failureIfExhausted) {
+    // Un intento termina bien (Reserved) o, si el hold se perdió, pide otro y guarda lo que se lanzaría si no quedan
+    // (Lost)
+    private sealed interface Attempt {
 
-        static Attempt success(ReservationProcess reserved) {
-            return new Attempt(reserved, null);
+        record Reserved(ReservationProcess process) implements Attempt {
         }
 
-        static Attempt retry(RuntimeException failureIfExhausted) {
-            return new Attempt(null, failureIfExhausted);
+        record Lost(RuntimeException failureIfExhausted) implements Attempt {
         }
     }
 
@@ -96,12 +93,15 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             // Armamos el ReservationProcess y lo guardamos con el repository
             ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
             // Intenta crear el hold
-            Attempt attempt = attempt(created, request, patient);
-            if (attempt.reserved() != null) {
-                return Optional.of(attempt.reserved());
-            }
-            if (number >= holdRetryPolicy.maxAttempts()) {
-                throw attempt.failureIfExhausted();
+            switch (attempt(created, request, patient)) {
+                case Attempt.Reserved reserved -> {
+                    return Optional.of(reserved.process());
+                }
+                case Attempt.Lost lost -> {
+                    if (number >= holdRetryPolicy.maxAttempts()) {
+                        throw lost.failureIfExhausted();
+                    }
+                }
             }
         }
     }
@@ -161,7 +161,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
                     request.userId());
         // Atrapamos las excepciones y hacemos el cierre del intento del ReservationProcess registrando el error
         } catch (CatedraRejectedException e) {
-            RuntimeException failure = toException(e.getRejection(), request);
+            RuntimeException failure = HoldRejectionTranslator.translate(e.getRejection(), request.professionalId());
             close(processId, ReservationStatus.FAILED, e.getRejection().name(), failure);
             throw failure;
         } catch (CatedraNotReachedException e) {
@@ -176,18 +176,6 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             throw e;
         }
         return confirm(processId, hold, request, patient);
-    }
-
-    private RuntimeException toException(CatedraRejection rejection, ReservationRequest request) {
-        return switch (rejection) {
-            case SLOT_ALREADY_HELD, SLOT_ALREADY_RESERVED -> new SlotUnavailableException();
-            case PROFESSIONAL_DISABLED -> new ProfessionalDisabledException(
-                    "La cátedra informa deshabilitado al profesional " + request.professionalId());
-            case PROFESSIONAL_NOT_FOUND -> new ProfessionalNotFoundException(request.professionalId());
-            case INVALID_SLOT -> new InvalidSlotException(
-                    "La cátedra no reconoce el horario en la agenda del profesional " + request.professionalId());
-            default -> new CatedraResponseException("La cátedra rechazó el hold con " + rejection, null);
-        };
     }
 
     // Cierra el intento. Aplicando la transición
@@ -208,7 +196,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         if (occupied) {
             throw new SlotUnavailableException();
         }
-        return Attempt.retry(lost);
+        return new Attempt.Lost(lost);
     }
 
     private Attempt confirm(Long processId, Hold hold, ReservationRequest request, Patient patient) {
@@ -233,7 +221,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, e);
             throw e;
         }
-        return Attempt.success(transition(processId,
+        return new Attempt.Reserved(transition(processId,
                 ReservationTransition.builder().target(ReservationStatus.WAITING_PHONE).expiresAt(expiresAt).build()));
     }
 
@@ -257,7 +245,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             RuntimeException expired = new ReservationExpiredException();
             close(processId, rejection == CatedraRejection.HOLD_EXPIRED ? ReservationStatus.EXPIRED
                     : ReservationStatus.FAILED, rejection.name(), expired);
-            return Attempt.retry(expired);
+            return new Attempt.Lost(expired);
         }
         RuntimeException unexpected = new CatedraResponseException(
                 "La cátedra rechazó la confirmación con " + rejection, rejected);

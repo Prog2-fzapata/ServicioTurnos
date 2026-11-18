@@ -6,10 +6,6 @@ import static ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.client.FakeH
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.io.IOException;
-import java.net.ConnectException;
-import java.net.http.HttpConnectTimeoutException;
-import java.net.http.HttpTimeoutException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -81,6 +77,7 @@ class CatedraApiClientAdapterTest {
                     CatedraMapper.class);
 
     private final Logger adapterLogger = (Logger) LoggerFactory.getLogger(CatedraApiClientAdapter.class);
+    private final Logger translatorLogger = (Logger) LoggerFactory.getLogger(CatedraErrorTranslator.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
     private FakeHttpServer server;
@@ -92,8 +89,10 @@ class CatedraApiClientAdapterTest {
         Jwt jwt = Jwt.withTokenValue(USER_TOKEN).header("alg", "HS512").claim("uid", "42").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
         adapterLogger.setLevel(Level.DEBUG);
+        translatorLogger.setLevel(Level.DEBUG);
         appender.start();
         adapterLogger.addAppender(appender);
+        translatorLogger.addAppender(appender);
     }
 
     @AfterEach
@@ -101,6 +100,7 @@ class CatedraApiClientAdapterTest {
         server.close();
         SecurityContextHolder.clearContext();
         adapterLogger.detachAppender(appender);
+        translatorLogger.detachAppender(appender);
         appender.stop();
     }
 
@@ -728,31 +728,6 @@ class CatedraApiClientAdapterTest {
         withAdapter(adapter -> assertThatThrownBy(() -> adapter.findOccupancies(15L, DAY, DAY))
                 .isInstanceOf(CatedraResponseException.class).hasMessageNotContaining("cuerpo-secreto")
                 .hasMessageNotContaining(TECHNICAL_JWT));
-    }
-
-    // ---------- Cómo se distingue "nunca se conectó" de "el pedido pudo haber llegado"
-
-    @Test
-    void aRefusedOrTimedOutConnectionMeansThatNothingWasSent() {
-        CatedraApiClientAdapter adapter = new CatedraApiClientAdapter(null, null, null, null);
-
-        assertThat(adapter.neverConnected(new ResourceAccessException("x", new ConnectException("refused"))))
-                .isTrue();
-        assertThat(adapter.neverConnected(new ResourceAccessException("x", new HttpConnectTimeoutException("t"))))
-                .isTrue();
-        // La causa puede venir envuelta
-        assertThat(adapter.neverConnected(new ResourceAccessException("x",
-                new IOException("envoltorio", new ConnectException("refused"))))).isTrue();
-    }
-
-    // Un timeout de lectura o un corte después de enviar: el pedido pudo haber llegado
-    @Test
-    void anyOtherFailureMeansThatTheRequestMayHaveArrived() {
-        CatedraApiClientAdapter adapter = new CatedraApiClientAdapter(null, null, null, null);
-
-        assertThat(adapter.neverConnected(new ResourceAccessException("x", new HttpTimeoutException("read")))).isFalse();
-        assertThat(adapter.neverConnected(new ResourceAccessException("x", new IOException("corte")))).isFalse();
-        assertThat(adapter.neverConnected(new ResourceAccessException("x"))).isFalse();
     }
 
     // ---------- Log de lo que la cátedra aceptó
