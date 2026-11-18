@@ -30,17 +30,13 @@ public class PublishPendingPhonesUseCaseImpl implements PublishPendingPhonesUseC
     private final RelayBatchPolicy relayBatchPolicy;
     private final ConflictRetryPolicy conflictRetryPolicy;
 
-    // Si el proceso cambió mientras tanto se repite solo la actualización: el mensaje ya está publicado
-    private Optional<TransitionResult> markSentRetrying(OutboxEvent event) {
-        for (int attemptNumber = 1;; attemptNumber++) {
-            try {
-                return markPhoneSentUseCase.markSent(event);
-            } catch (ReservationConflictException e) {
-                if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
-                    throw e;
-                }
-            }
+    @Override
+    public List<PhoneDelivery> publishPending() {
+        List<PhoneDelivery> deliveries = new ArrayList<>();
+        for (OutboxEvent event : outboxRepository.findPending(relayBatchPolicy.size())) {
+            deliveries.add(deliver(event));
         }
+        return deliveries;
     }
 
     private PhoneDelivery deliver(OutboxEvent event) {
@@ -54,12 +50,16 @@ public class PublishPendingPhonesUseCaseImpl implements PublishPendingPhonesUseC
         return new PhoneDelivery(event, true, markSentRetrying(event));
     }
 
-    @Override
-    public List<PhoneDelivery> publishPending() {
-        List<PhoneDelivery> deliveries = new ArrayList<>();
-        for (OutboxEvent event : outboxRepository.findPending(relayBatchPolicy.size())) {
-            deliveries.add(deliver(event));
+    // Si el proceso cambió mientras tanto se repite solo la actualización: el mensaje ya está publicado
+    private Optional<TransitionResult> markSentRetrying(OutboxEvent event) {
+        for (int attemptNumber = 1;; attemptNumber++) {
+            try {
+                return markPhoneSentUseCase.markSent(event);
+            } catch (ReservationConflictException e) {
+                if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
+                    throw e;
+                }
+            }
         }
-        return deliveries;
     }
 }

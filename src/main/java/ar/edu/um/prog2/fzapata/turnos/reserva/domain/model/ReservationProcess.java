@@ -20,8 +20,8 @@ import lombok.Setter;
 public class ReservationProcess {
 
     private Long id;
-    private String reservationProcessId;
-    private String holdId;
+    private String reservationProcessId; // Cátedra
+    private String holdId; // Cátedra
     private String userId;
     private Long professionalId;
     private String professionalFirstName;

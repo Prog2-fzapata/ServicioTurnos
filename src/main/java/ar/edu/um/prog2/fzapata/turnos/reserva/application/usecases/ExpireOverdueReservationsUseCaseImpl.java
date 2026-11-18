@@ -31,29 +31,6 @@ public class ExpireOverdueReservationsUseCaseImpl implements ExpireOverdueReserv
     private final ExpirationPolicy expirationPolicy;
     private final Clock clock;
 
-    private static ExpirationOutcome outcomeOf(Applied applied, ExpirationOutcome whenApplied) {
-        return switch (applied) {
-            case APPLIED -> whenApplied;
-            case UNCHANGED -> ExpirationOutcome.UNCHANGED;
-            case CONFLICT -> ExpirationOutcome.CONFLICT;
-        };
-    }
-
-    private ExpirationOutcome expire(ReservationProcess process) {
-        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
-                .target(ReservationStatus.EXPIRED).failureReason(EXPIRATION_REASON).build()),
-                ExpirationOutcome.EXPIRED);
-    }
-
-    private ExpirationOutcome expireOrRepair(ReservationProcess process, Answer answer) {
-        return switch (answer.verdict()) {
-            case CONFIRMED -> outcomeOf(catedraReconciliation.apply(process.getId(),
-                    catedraReconciliation.confirmedBy(answer.appointment())), ExpirationOutcome.CONFIRMED_BY_CATEDRA);
-            case NOT_CONFIRMED -> expire(process);
-            case INCOMPLETE, CATEDRA_FAILED -> ExpirationOutcome.UNVERIFIED;
-        };
-    }
-
     @Override
     public List<ExpirationResult> expireOverdue() {
         List<ReservationProcess> overdue = reservationProcessRepository
@@ -76,5 +53,28 @@ public class ExpireOverdueReservationsUseCaseImpl implements ExpireOverdueReserv
             results.add(new ExpirationResult(process.getId(), process.getStatus(), outcome));
         }
         return results;
+    }
+
+    private ExpirationOutcome expire(ReservationProcess process) {
+        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
+                .target(ReservationStatus.EXPIRED).failureReason(EXPIRATION_REASON).build()),
+                ExpirationOutcome.EXPIRED);
+    }
+
+    private static ExpirationOutcome outcomeOf(Applied applied, ExpirationOutcome whenApplied) {
+        return switch (applied) {
+            case APPLIED -> whenApplied;
+            case UNCHANGED -> ExpirationOutcome.UNCHANGED;
+            case CONFLICT -> ExpirationOutcome.CONFLICT;
+        };
+    }
+
+    private ExpirationOutcome expireOrRepair(ReservationProcess process, Answer answer) {
+        return switch (answer.verdict()) {
+            case CONFIRMED -> outcomeOf(catedraReconciliation.apply(process.getId(),
+                    catedraReconciliation.confirmedBy(answer.appointment())), ExpirationOutcome.CONFIRMED_BY_CATEDRA);
+            case NOT_CONFIRMED -> expire(process);
+            case INCOMPLETE, CATEDRA_FAILED -> ExpirationOutcome.UNVERIFIED;
+        };
     }
 }
