@@ -37,16 +37,6 @@ public class CatedraClientConfiguration {
                 .build();
     }
 
-    private RetryTemplate retryTemplate(CatedraProperties properties, Class<? extends Throwable> retryable) {
-        RetryPolicy policy = RetryPolicy.builder()
-                .maxRetries(properties.maxAttempts() - 1L)
-                .delay(properties.initialBackoff())
-                .multiplier(2)
-                .includes(retryable)
-                .build();
-        return new RetryTemplate(policy);
-    }
-
     // Lecturas, confirmar y cancelar: se pueden repetir sin riesgo ante cualquier "no disponible"
     @Bean
     RetryTemplate catedraRetryTemplate(CatedraProperties properties) {
@@ -58,5 +48,15 @@ public class CatedraClientConfiguration {
     @Bean
     RetryTemplate catedraHoldRetryTemplate(CatedraProperties properties) {
         return retryTemplate(properties, CatedraNotReachedException.class);
+    }
+
+    private RetryTemplate retryTemplate(CatedraProperties properties, Class<? extends Throwable> retryable) {
+        RetryPolicy policy = RetryPolicy.builder()
+                .maxRetries(properties.maxAttempts() - 1L)
+                .delay(properties.initialBackoff())
+                .multiplier(2)
+                .includes(retryable)
+                .build();
+        return new RetryTemplate(policy);
     }
 }

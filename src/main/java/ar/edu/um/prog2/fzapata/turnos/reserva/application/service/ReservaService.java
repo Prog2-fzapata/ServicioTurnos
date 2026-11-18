@@ -83,20 +83,6 @@ public class ReservaService {
                 .orElseThrow(() -> new ReservationProcessNotFoundException(id));
     }
 
-    // Cada intento es una transacción nueva del caso de uso: si la versión del proceso chocó, se deshizo todo y se
-    // repite entero (D84). Es seguro porque lo que se deshizo no dejó nada escrito
-    private <T> T retryingOnConflict(Supplier<T> attempt) {
-        for (int attemptNumber = 1;; attemptNumber++) {
-            try {
-                return attempt.get();
-            } catch (ReservationConflictException e) {
-                if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
-                    throw e;
-                }
-            }
-        }
-    }
-
     // Un evento ya registrado vuelve como DUPLICATE, así que repetirlo es seguro
     public EventResult processEvent(CatedraEvent event) {
         return retryingOnConflict(() -> processCatedraEventUseCase.processEvent(event));
@@ -118,5 +104,19 @@ public class ReservaService {
 
     public List<RecoveryResult> recoverReservations(Instant instanceStartedAt) {
         return recoverReservationsUseCase.recover(instanceStartedAt);
+    }
+
+    // Cada intento es una transacción nueva del caso de uso: si la versión del proceso chocó, se deshizo todo y se
+    // repite entero (D84). Es seguro porque lo que se deshizo no dejó nada escrito
+    private <T> T retryingOnConflict(Supplier<T> attempt) {
+        for (int attemptNumber = 1;; attemptNumber++) {
+            try {
+                return attempt.get();
+            } catch (ReservationConflictException e) {
+                if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
+                    throw e;
+                }
+            }
+        }
     }
 }

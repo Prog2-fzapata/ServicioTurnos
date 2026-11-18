@@ -40,26 +40,6 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
     private final PhoneMessageSettings phoneMessageSettings;
     private final Clock clock;
 
-    private ReservationProcess requireSubmittable(ReservationProcess process, Instant now) {
-        if (!PhoneSubmissionRules.canSubmit(process)) {
-            throw new InvalidReservationStateException(process.getId(), process.getStatus());
-        }
-        if (process.getExpiresAt() != null && !now.isBefore(process.getExpiresAt())) {
-            throw new PhoneWindowExpiredException(process.getId());
-        }
-        return process;
-    }
-
-    private OutboxEvent newOutboxEvent(ReservationProcess queued, Instant now) {
-        String eventId = "phone-submitted-" + UUID.randomUUID();
-        String payload = phoneMessageSerializer.toPayload(new PhoneSubmission(eventId,
-                queued.getReservationProcessId(), queued.getHoldId(), queued.getRequestEventId(),
-                queued.getPatientPhone(), now));
-        return OutboxEvent.builder().eventId(eventId).reservationProcessId(queued.getReservationProcessId())
-                .topic(phoneMessageSettings.topic()).messageKey(queued.getReservationProcessId()).payload(payload)
-                .status(OutboxStatus.PENDING).createdAt(now).build();
-    }
-
     // El estado y el mensaje se guardan juntos: o quedan los dos o ninguno. Un solo intento por transacción, igual que
     // al procesar un evento (D84): el reintento por choque de versión lo hace quien llama
     @Override
@@ -80,5 +60,25 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
         }
         outboxRepository.save(newOutboxEvent(result.process(), now));
         return Optional.of(result.process());
+    }
+
+    private ReservationProcess requireSubmittable(ReservationProcess process, Instant now) {
+        if (!PhoneSubmissionRules.canSubmit(process)) {
+            throw new InvalidReservationStateException(process.getId(), process.getStatus());
+        }
+        if (process.getExpiresAt() != null && !now.isBefore(process.getExpiresAt())) {
+            throw new PhoneWindowExpiredException(process.getId());
+        }
+        return process;
+    }
+
+    private OutboxEvent newOutboxEvent(ReservationProcess queued, Instant now) {
+        String eventId = "phone-submitted-" + UUID.randomUUID();
+        String payload = phoneMessageSerializer.toPayload(new PhoneSubmission(eventId,
+                queued.getReservationProcessId(), queued.getHoldId(), queued.getRequestEventId(),
+                queued.getPatientPhone(), now));
+        return OutboxEvent.builder().eventId(eventId).reservationProcessId(queued.getReservationProcessId())
+                .topic(phoneMessageSettings.topic()).messageKey(queued.getReservationProcessId()).payload(payload)
+                .status(OutboxStatus.PENDING).createdAt(now).build();
     }
 }

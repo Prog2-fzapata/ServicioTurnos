@@ -14,11 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class TransitionOutcomeLogger {
 
-    private static LoggingEventBuilder described(LoggingEventBuilder event, String eventType, String eventId,
-            Long reservationId, String userId) {
-        return LogFields.reservation(LogFields.origin(event, eventType, eventId), reservationId, userId);
-    }
-
     // eventType y eventId dicen qué evento disparó el cambio; eventId puede ser null
     public void log(String eventType, String eventId, Long reservationId, Optional<TransitionResult> result) {
         if (result.isEmpty()) {
@@ -42,5 +37,10 @@ public class TransitionOutcomeLogger {
                     eventType, eventId, reservationId, userId).addKeyValue("from", transition.from().name())
                     .addKeyValue("to", transition.target().name()).log();
         }
+    }
+
+    private static LoggingEventBuilder described(LoggingEventBuilder event, String eventType, String eventId,
+            Long reservationId, String userId) {
+        return LogFields.reservation(LogFields.origin(event, eventType, eventId), reservationId, userId);
     }
 }

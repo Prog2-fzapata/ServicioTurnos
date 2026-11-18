@@ -8,8 +8,15 @@ import lombok.Builder;
 // Un cambio de estado pedido y los datos que lo acompañan. Solo los datos presentes se copian al proceso: un null
 // nunca borra lo que ya había
 @Builder
-public record ReservationTransition(ReservationStatus target, String holdId, String reservationProcessId,
-        Instant expiresAt, String patientPhone, String requestEventId, Long reservationId, String failureReason,
+public record ReservationTransition(
+        ReservationStatus target,
+        String holdId,
+        String reservationProcessId,
+        Instant expiresAt,
+        String patientPhone,
+        String requestEventId,
+        Long reservationId,
+        String failureReason,
         String cancellationReason) {
 
     public ReservationTransition {

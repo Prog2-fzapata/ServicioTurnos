@@ -28,32 +28,6 @@ public class RecoverReservationsUseCaseImpl implements RecoverReservationsUseCas
     private final CatedraReconciliation catedraReconciliation;
     private final RecoveryPolicy recoveryPolicy;
 
-    private static RecoveryOutcome outcomeOf(Applied applied, RecoveryOutcome whenApplied) {
-        return switch (applied) {
-            case APPLIED -> whenApplied;
-            case UNCHANGED -> RecoveryOutcome.UNCHANGED;
-            case CONFLICT -> RecoveryOutcome.CONFLICT;
-        };
-    }
-
-    // El pedido del hold quedó sin resultado conocido (se cayó el servicio o se perdió la respuesta): nunca se
-    // recibieron los ids, así que no se puede confirmar ni reconciliar. El hold que la cátedra haya creado vence solo
-    private RecoveryOutcome failOrphan(ReservationProcess process) {
-        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
-                .target(ReservationStatus.FAILED).failureReason(StartReservationUseCaseImpl.HOLD_RESULT_UNKNOWN)
-                .build()), RecoveryOutcome.ORPHAN_FAILED);
-    }
-
-    // Solo se actúa con evidencia de que la cátedra lo tiene confirmado; si no, se deja como está
-    private RecoveryOutcome repairIfConfirmed(ReservationProcess process, Answer answer) {
-        return switch (answer.verdict()) {
-            case CONFIRMED -> outcomeOf(catedraReconciliation.apply(process.getId(),
-                    catedraReconciliation.confirmedBy(answer.appointment())), RecoveryOutcome.CONFIRMED_BY_CATEDRA);
-            case NOT_CONFIRMED -> RecoveryOutcome.STILL_OPEN;
-            case INCOMPLETE, CATEDRA_FAILED -> RecoveryOutcome.UNVERIFIED;
-        };
-    }
-
     @Override
     public List<RecoveryResult> recover(Instant instanceStartedAt) {
         List<RecoveryResult> results = new ArrayList<>();
@@ -75,5 +49,31 @@ public class RecoverReservationsUseCaseImpl implements RecoverReservationsUseCas
             results.add(new RecoveryResult(process.getId(), process.getStatus(), outcome));
         }
         return results;
+    }
+
+    // El pedido del hold quedó sin resultado conocido (se cayó el servicio o se perdió la respuesta): nunca se
+    // recibieron los ids, así que no se puede confirmar ni reconciliar. El hold que la cátedra haya creado vence solo
+    private RecoveryOutcome failOrphan(ReservationProcess process) {
+        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
+                .target(ReservationStatus.FAILED).failureReason(StartReservationUseCaseImpl.HOLD_RESULT_UNKNOWN)
+                .build()), RecoveryOutcome.ORPHAN_FAILED);
+    }
+
+    private static RecoveryOutcome outcomeOf(Applied applied, RecoveryOutcome whenApplied) {
+        return switch (applied) {
+            case APPLIED -> whenApplied;
+            case UNCHANGED -> RecoveryOutcome.UNCHANGED;
+            case CONFLICT -> RecoveryOutcome.CONFLICT;
+        };
+    }
+
+    // Solo se actúa con evidencia de que la cátedra lo tiene confirmado; si no, se deja como está
+    private RecoveryOutcome repairIfConfirmed(ReservationProcess process, Answer answer) {
+        return switch (answer.verdict()) {
+            case CONFIRMED -> outcomeOf(catedraReconciliation.apply(process.getId(),
+                    catedraReconciliation.confirmedBy(answer.appointment())), RecoveryOutcome.CONFIRMED_BY_CATEDRA);
+            case NOT_CONFIRMED -> RecoveryOutcome.STILL_OPEN;
+            case INCOMPLETE, CATEDRA_FAILED -> RecoveryOutcome.UNVERIFIED;
+        };
     }
 }

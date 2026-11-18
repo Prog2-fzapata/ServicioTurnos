@@ -12,11 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class ReservationActionLogger {
 
-    private static void logged(LoggingEventBuilder event, ReservationProcess process) {
-        LogFields.reservation(event, process.getId(), process.getUserId())
-                .addKeyValue("status", process.getStatus().name()).log();
-    }
-
     public void started(ReservationProcess process) {
         logged(log.atInfo().setMessage("Reserva iniciada"), process);
     }
@@ -27,5 +22,10 @@ public class ReservationActionLogger {
 
     public void cancelled(ReservationProcess process) {
         logged(log.atInfo().setMessage("Reserva cancelada"), process);
+    }
+
+    private static void logged(LoggingEventBuilder event, ReservationProcess process) {
+        LogFields.reservation(event, process.getId(), process.getUserId())
+                .addKeyValue("status", process.getStatus().name()).log();
     }
 }

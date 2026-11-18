@@ -39,33 +39,6 @@ public class ReservationStreamRegistry implements SmartLifecycle {
     private record Connection(SseEmitter emitter, Instant tokenExpiresAt) {
     }
 
-    private void remove(String userId, Connection connection) {
-        connections.computeIfPresent(userId, (key, current) -> {
-            List<Connection> updated = new ArrayList<>(current);
-            updated.remove(connection);
-            return updated.isEmpty() ? null : updated;
-        });
-    }
-
-    private void complete(Connection connection) {
-        try {
-            connection.emitter().complete();
-        } catch (RuntimeException e) {
-            log.atDebug().setMessage("La conexión ya estaba cerrada").setCause(e).log();
-        }
-    }
-
-    // Una conexión que no responde se descarta: el contenido se perdió, pero la app reconsulta al reconectar
-    private void deliver(String userId, Connection connection, SseEventBuilder event) {
-        try {
-            connection.emitter().send(event);
-        } catch (IOException | RuntimeException e) {
-            log.atDebug().setMessage("Se descarta una conexión del stream que no responde").setCause(e).log();
-            remove(userId, connection);
-            complete(connection);
-        }
-    }
-
     // El primer envío manda las cabeceras: sin él el cliente esperaría hasta el primer evento o latido
     public SseEmitter register(String userId, Instant tokenExpiresAt) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -134,5 +107,32 @@ public class ReservationStreamRegistry implements SmartLifecycle {
 
     int connectionCount(String userId) {
         return connections.getOrDefault(userId, List.of()).size();
+    }
+
+    private void remove(String userId, Connection connection) {
+        connections.computeIfPresent(userId, (key, current) -> {
+            List<Connection> updated = new ArrayList<>(current);
+            updated.remove(connection);
+            return updated.isEmpty() ? null : updated;
+        });
+    }
+
+    private void complete(Connection connection) {
+        try {
+            connection.emitter().complete();
+        } catch (RuntimeException e) {
+            log.atDebug().setMessage("La conexión ya estaba cerrada").setCause(e).log();
+        }
+    }
+
+    // Una conexión que no responde se descarta: el contenido se perdió, pero la app reconsulta al reconectar
+    private void deliver(String userId, Connection connection, SseEventBuilder event) {
+        try {
+            connection.emitter().send(event);
+        } catch (IOException | RuntimeException e) {
+            log.atDebug().setMessage("Se descarta una conexión del stream que no responde").setCause(e).log();
+            remove(userId, connection);
+            complete(connection);
+        }
     }
 }
