@@ -75,18 +75,24 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
     }
 
+    // Genera la agenda para ese día del profesional y toma el primer slot, el que coincide con la hora seleccionada
     private Slot requireSlot(CatalogProfessional professional, ReservationRequest request) {
         LocalDateTime start = LocalDateTime.of(request.date(), request.startTime());
-        Slot slot = AgendaSlots.generate(professional, request.date(), request.date()).get(start);
-        if (slot == null) {
-            throw new InvalidSlotException("El horario no está en la agenda del profesional " + professional.getId());
-        }
+
         if (start.isBefore(LocalDateTime.now(clock))) {
             throw new InvalidSlotException("El horario ya pasó");
+        }
+
+        Slot slot = AgendaSlots.generate(professional, request.date(), request.date()).get(start);
+
+        if (slot == null) {
+            throw new InvalidSlotException("El horario no está en la agenda del profesional " + professional.getId());
         }
         return slot;
     }
 
+    // Verifica que el usuario tenga name y lastName cargados y retorna Patient, si no, PatientNameRequiredException
+    // Son campos opcionales en el registro pero necesarios para reservar
     private Patient requirePatient(CatalogAccount account) {
         String firstName = account.getFirstName() == null ? "" : account.getFirstName().strip();
         String lastName = account.getLastName() == null ? "" : account.getLastName().strip();
@@ -95,15 +101,23 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
         return new Patient(firstName, lastName);
     }
-
+    // Retorna un nuevo ReservationProcess con builder.
     private ReservationProcess newProcess(ReservationRequest request, CatalogProfessional professional, Slot slot,
             Patient patient) {
         Instant now = clock.instant();
-        return ReservationProcess.builder().userId(request.userId()).professionalId(professional.getId())
-                .professionalFirstName(professional.getFirstName()).professionalLastName(professional.getLastName())
-                .appointmentDate(slot.getDate()).startTime(slot.getStartTime()).endTime(slot.getEndTime())
-                .status(ReservationStatus.HOLD_REQUESTED).patientFirstName(patient.firstName())
-                .patientLastName(patient.lastName()).createdAt(now).updatedAt(now).build();
+        return ReservationProcess.builder()
+                .userId(request.userId())
+                .professionalId(professional.getId())
+                .professionalFirstName(professional.getFirstName())
+                .professionalLastName(professional.getLastName())
+                .appointmentDate(slot.getDate())
+                .startTime(slot.getStartTime())
+                .endTime(slot.getEndTime())
+                .status(ReservationStatus.HOLD_REQUESTED)
+                .patientFirstName(patient.firstName())
+                .patientLastName(patient.lastName())
+                .createdAt(now)
+                .updatedAt(now).build();
     }
 
     // Un paso que acá debe aplicarse siempre: si el diagrama lo rechaza, el proceso no está donde este caso de uso
@@ -119,13 +133,13 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         return result.process();
     }
 
-    // Cierra el intento. Un fallo al registrar el cierre no debe tapar el error original
+    // Cierra el intento. Aplicando la transición
     private void close(Long processId, ReservationStatus finalStatus, String reason, RuntimeException cause) {
         try {
             applyReservationTransition.applyTransition(processId,
                     ReservationTransition.builder().target(finalStatus).failureReason(reason).build());
         } catch (RuntimeException e) {
-            cause.addSuppressed(e);
+            cause.addSuppressed(e); // Un fallo al registrar el cierre no debe tapar el error original
         }
     }
 
@@ -200,6 +214,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         try {
             hold = catedraApiClient.createHold(request.professionalId(), request.date(), request.startTime(),
                     request.userId());
+        // Atrapamos las excepciones y hacemos el cierre del intento del ReservationProcess registrando el error
         } catch (CatedraRejectedException e) {
             RuntimeException failure = toException(e.getRejection(), request);
             close(processId, ReservationStatus.FAILED, e.getRejection().name(), failure);
@@ -220,20 +235,25 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
 
     @Override
     public Optional<ReservationProcess> startReservation(ReservationRequest request) {
-        // El mapper del controller devuelve null ante un cuerpo null: se exige acá, antes de usar la solicitud
+        // Por Http no llega null, por si otro adaptador lo llama y no lo verifica
         Objects.requireNonNull(request, "La solicitud de reserva es obligatoria");
         Optional<CatalogProfessional> found = catalogClient.findProfessional(request.professionalId());
         if (found.isEmpty()) {
-            return Optional.empty();
+            return Optional.empty(); // ProfessionalNotFoundException en Service
         }
+        // Extraemos el professional del optional
         CatalogProfessional professional = found.get();
-        professionalGuard.requireEnabled(professional);
+        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría esten enabled
+
+        // Consulta la agenda del día de la request y devuelve slot si está disponible
         Slot slot = requireSlot(professional, request);
-        // Antes de crear nada: si falta el nombre no queda ningún proceso ni nada bloqueado en la cátedra
+        // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
         Patient patient = requirePatient(catalogClient.findAccount());
+        // Iteramos hasta maxAttempts
         for (int number = 1;; number++) {
-            ReservationProcess created = reservationProcessRepository
-                    .save(newProcess(request, professional, slot, patient));
+            // Armamos el ReservationProcess y lo guardamos con el repository
+            ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
+            // Intenta crear el hold
             Attempt attempt = attempt(created, request, patient);
             if (attempt.reserved() != null) {
                 return Optional.of(attempt.reserved());

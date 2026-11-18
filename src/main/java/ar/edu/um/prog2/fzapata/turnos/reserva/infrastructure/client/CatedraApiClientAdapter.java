@@ -121,10 +121,10 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
         return false;
     }
 
-    // Un intento: traduce las fallas del cliente HTTP a las excepciones de la aplicación
+    // Se hace un intento y traduce las fallas del cliente HTTP a las excepciones de la aplicación
     private <T> T attempt(Supplier<T> request) {
         try {
-            return request.get();
+            return request.get(); // Aquí recién ejecuta la petición HTTP
         } catch (RestClientResponseException e) {
             throw translate(e);
         } catch (ResourceAccessException e) {
@@ -142,10 +142,12 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
         }
     }
 
+    // Le pide al template que ejecute attempt(request) según su política
     private <T> T execute(RetryTemplate retryTemplate, Supplier<T> request) {
         return retryTemplate.invoke(() -> attempt(request));
     }
 
+    // Si response es null CatedraResponseException
     private <T> T required(T response) {
         if (response == null) {
             throw new CatedraResponseException("La cátedra respondió sin cuerpo", null);
@@ -176,16 +178,20 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
         return catedraMapper.toDomainModel(required(response));
     }
 
+    //  Se solicita a la catedra via REST que cree el hold
     @Override
     public Hold createHold(Long professionalId, LocalDate date, LocalTime startTime, String externalPatientId) {
         HoldRequest request = new HoldRequest(professionalId, date, startTime, externalPatientId);
+
         HoldResponse response = execute(catedraHoldRetryTemplate, () -> catedraRestClient.post()
                 .uri("/api/appointment-holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
                 .body(HoldResponse.class));
+
         Hold hold = catedraMapper.toDomainModel(required(response));
+        // Logueamos la creación del hold
         log.atInfo().setMessage("La cátedra creó el hold").addKeyValue("holdId", hold.getHoldId())
                 .addKeyValue("reservationProcessId", hold.getReservationProcessId()).log();
         return hold;

@@ -23,20 +23,25 @@ public final class AgendaSlots {
             return;
         }
         LocalTime start = schedule.getStartTime();
+
+        // Recorre el tiempo mientras falte hasta el fin del horario al menos lo que dura un slot
+        // agregando los slots mientras no se repitan por fecha y start
         while (start.until(schedule.getEndTime(), ChronoUnit.SECONDS) >= duration * 60) {
             LocalTime end = start.plusMinutes(duration);
-            // Dos horarios que se superponen pueden repetir un inicio: se deduplica por fecha e inicio
-            slots.putIfAbsent(LocalDateTime.of(date, start),
-                    Slot.builder().date(date).startTime(start).endTime(end).build());
+            // Dos horarios que se superponen pueden repetir un inicio: no se agrega el repetido por fecha y start
+            slots.putIfAbsent(LocalDateTime.of(date, start), Slot.builder().date(date).startTime(start).endTime(end).build());
             start = end;
         }
     }
 
-    // Ordenados por fecha y hora de inicio, ambas fechas inclusivas
+    // Retorna los horarios de ese día. Ordenados por fecha y hora de inicio, ambas fechas inclusivas
     public static NavigableMap<LocalDateTime, Slot> generate(CatalogProfessional professional, LocalDate from,
             LocalDate to) {
+        // NavigableMap tiene métodos para consultar por posición de orden, treemap, map ordenado sin duplicados
         NavigableMap<LocalDateTime, Slot> slots = new TreeMap<>();
+        // Desde from hasta que !date.isAfter(to) sea falso.
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            // Añade los slots enabled de esas fechas al map
             for (CatalogSchedule schedule : professional.getWeeklySchedules()) {
                 if (schedule.isEnabled() && schedule.getDayOfWeek() == date.getDayOfWeek()) {
                     addSlots(slots, date, schedule);

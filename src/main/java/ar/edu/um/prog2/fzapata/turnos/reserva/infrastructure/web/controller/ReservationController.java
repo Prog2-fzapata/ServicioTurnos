@@ -48,7 +48,7 @@ public class ReservationController {
             + "confirma. Devuelve la reserva esperando el teléfono (WAITING_PHONE). El usuario sale del JWT")
     @PostMapping
     public ResponseEntity<ReservationResponse> startReservation(
-            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt, // Spring Security retorna jwt decodificado y verificado
             @Valid @RequestBody StartReservationRequest request) {
         String userId = jwt.getClaimAsString(JwtClaims.USER_ID);
         ReservationProcess process = reservaService.startReservation(reservationDtoMapper.toRequest(request, userId));

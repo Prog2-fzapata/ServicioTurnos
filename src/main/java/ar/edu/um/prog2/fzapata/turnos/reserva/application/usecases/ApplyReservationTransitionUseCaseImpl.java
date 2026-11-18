@@ -97,6 +97,7 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
     @Override
     public Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition) {
         for (int attemptNumber = 1;; attemptNumber++) {
+            // Traemos el ReservationProcess
             Optional<ReservationProcess> found = reservationProcessRepository.findById(processId);
             if (found.isEmpty()) {
                 return Optional.empty();
