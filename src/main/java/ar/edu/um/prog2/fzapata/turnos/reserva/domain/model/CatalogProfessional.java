@@ -4,8 +4,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.SortedMap;
 import java.util.TreeMap;
 
 import lombok.AllArgsConstructor;
@@ -35,8 +35,8 @@ public class CatalogProfessional {
     // Los horarios de su agenda entre dos fechas, ambas inclusivas, ordenados por inicio. Es un mapa nuevo en cada
     // llamada: quien lo recibe puede quitarle horarios. Disponibilidad y reserva leen la agenda por acá, así que
     // aplican exactamente la misma regla
-    public NavigableMap<LocalDateTime, Slot> slotsBetween(LocalDate from, LocalDate to) {
-        NavigableMap<LocalDateTime, Slot> slots = new TreeMap<>();
+    public SortedMap<LocalDateTime, Slot> slotsBetween(LocalDate from, LocalDate to) {
+        SortedMap<LocalDateTime, Slot> slots = new TreeMap<>();
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
             addSlotsOn(slots, date);
         }
