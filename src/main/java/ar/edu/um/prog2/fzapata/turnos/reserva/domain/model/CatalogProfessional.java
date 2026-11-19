@@ -1,6 +1,12 @@
 package ar.edu.um.prog2.fzapata.turnos.reserva.domain.model;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.TreeMap;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,4 +31,31 @@ public class CatalogProfessional {
     private String lastName;
     private boolean enabled;
     private List<CatalogSchedule> weeklySchedules;
+
+    // Los horarios de su agenda entre dos fechas, ambas inclusivas, ordenados por inicio. Es un mapa nuevo en cada
+    // llamada: quien lo recibe puede quitarle horarios. Disponibilidad y reserva leen la agenda por acá, así que
+    // aplican exactamente la misma regla
+    public NavigableMap<LocalDateTime, Slot> slotsBetween(LocalDate from, LocalDate to) {
+        NavigableMap<LocalDateTime, Slot> slots = new TreeMap<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            addSlotsOn(slots, date);
+        }
+        return slots;
+    }
+
+    // El horario de su agenda que empieza exactamente a esa hora, si lo hay
+    public Optional<Slot> slotAt(LocalDateTime start) {
+        NavigableMap<LocalDateTime, Slot> day = new TreeMap<>();
+        addSlotsOn(day, start.toLocalDate());
+        return Optional.ofNullable(day.get(start));
+    }
+
+    private void addSlotsOn(Map<LocalDateTime, Slot> slots, LocalDate date) {
+        for (CatalogSchedule schedule : weeklySchedules) {
+            for (Slot slot : schedule.slotsOn(date)) {
+                // Dos horarios que se superponen pueden repetir un inicio: queda el primero
+                slots.putIfAbsent(LocalDateTime.of(date, slot.getStartTime()), slot);
+            }
+        }
+    }
 }

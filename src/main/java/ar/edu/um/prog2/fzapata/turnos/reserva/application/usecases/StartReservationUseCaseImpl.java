@@ -17,7 +17,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameR
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AgendaSlots;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraRejection;
@@ -82,12 +81,12 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
         // Extraemos el professional del optional
         CatalogProfessional professional = found.get();
-        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría esten enabled
+        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría enabled
 
         // Consulta la agenda del día de la request y devuelve slot si está disponible
-        Slot slot = requireSlot(professional, request);
+        Slot slot = getSlot(professional, request);
         // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
-        Patient patient = requirePatient(catalogClient.findAccount());
+        Patient patient = toPatient(catalogClient.findAccount());
         // Iteramos hasta maxAttempts
         for (int number = 1;; number++) {
             // Armamos el ReservationProcess y lo guardamos con el repository
@@ -106,25 +105,22 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
     }
 
-    // Genera la agenda para ese día del profesional y toma el primer slot, el que coincide con la hora seleccionada
-    private Slot requireSlot(CatalogProfessional professional, ReservationRequest request) {
+    // Busca en la agenda del profesional el slot que empieza a la hora seleccionada; si no hay, InvalidSlotException
+    private Slot getSlot(CatalogProfessional professional, ReservationRequest request) {
+        // Convertimos a LocalDateTime la fecha y hora de la request
         LocalDateTime start = LocalDateTime.of(request.date(), request.startTime());
 
         if (start.isBefore(LocalDateTime.now(clock))) {
             throw new InvalidSlotException("El horario ya pasó");
         }
 
-        Slot slot = AgendaSlots.generate(professional, request.date(), request.date()).get(start);
-
-        if (slot == null) {
-            throw new InvalidSlotException("El horario no está en la agenda del profesional " + professional.getId());
-        }
-        return slot;
+        return professional.slotAt(start).orElseThrow(() -> new InvalidSlotException(
+                "El horario no está en la agenda del profesional " + professional.getId()));
     }
 
     // Verifica que el usuario tenga name y lastName cargados y retorna Patient, si no, PatientNameRequiredException
     // Son campos opcionales en el registro pero necesarios para reservar
-    private Patient requirePatient(CatalogAccount account) {
+    private Patient toPatient(CatalogAccount account) {
         String firstName = account.getFirstName() == null ? "" : account.getFirstName().strip();
         String lastName = account.getLastName() == null ? "" : account.getLastName().strip();
         if (firstName.length() < MIN_NAME_LENGTH || lastName.length() < MIN_NAME_LENGTH) {
