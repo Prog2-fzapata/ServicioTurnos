@@ -90,9 +90,10 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         // Intentamos hasta maxAttempts
         for (int number = 1;; number++) {
             // Armamos el ReservationProcess y lo guardamos con el repository
-            ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
+            ReservationProcess process = reservationProcessRepository
+                    .save(newProcess(request, professional, slot, patient));
             // Intenta crear el hold
-            switch (attempt(created, request, patient)) {
+            switch (attempt(process, request, patient)) {
                 case Attempt.Reserved reserved -> {
                     return Optional.of(reserved.process());
                 }
@@ -149,8 +150,8 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     }
 
     // Un intento: el hold y su confirmación sobre un proceso nuevo
-    private Attempt attempt(ReservationProcess created, ReservationRequest request, Patient patient) {
-        Long processId = created.getId();
+    private Attempt attempt(ReservationProcess process, ReservationRequest request, Patient patient) {
+        Long processId = process.getId();
         Hold hold;
         try {
             hold = catedraApiClient.createHold(request.professionalId(), request.date(), request.startTime(),
