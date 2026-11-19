@@ -127,19 +127,9 @@ class ReservaServiceTest {
                 LocalTime.of(9, 30));
         ReservationProcess process = ReservationProcess.builder().id(1L).status(ReservationStatus.WAITING_PHONE)
                 .build();
-        when(startReservationUseCase.startReservation(request)).thenReturn(Optional.of(process));
+        when(startReservationUseCase.startReservation(request)).thenReturn(process);
 
         assertThat(reservaService.startReservation(request)).isSameAs(process);
-    }
-
-    @Test
-    void startingAReservationWithAMissingProfessionalBecomesAProfessionalNotFound() {
-        ReservationRequest request = new ReservationRequest("42", 99L, LocalDate.of(2026, 10, 19),
-                LocalTime.of(9, 30));
-        when(startReservationUseCase.startReservation(request)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> reservaService.startReservation(request))
-                .isInstanceOf(ProfessionalNotFoundException.class).hasMessageContaining("99");
     }
 
     @Test
