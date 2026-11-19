@@ -90,6 +90,15 @@ class CatalogProfessionalTest {
     }
 
     @Test
+    void slotAtKeepsTheFirstScheduleWhenTwoOverlapOnTheSameStart() {
+        CatalogProfessional professional = professional(schedule(DayOfWeek.MONDAY, "09:00", "10:00", 30),
+                schedule(DayOfWeek.MONDAY, "09:00", "10:00", 60));
+
+        assertThat(professional.slotAt(at(MONDAY, "09:00"))).get().extracting(Slot::getEndTime)
+                .isEqualTo(LocalTime.of(9, 30));
+    }
+
+    @Test
     void slotAtIsEmptyWhenNoSlotStartsThen() {
         CatalogProfessional professional = professional(schedule(DayOfWeek.MONDAY, "09:00", "10:00", 30));
 

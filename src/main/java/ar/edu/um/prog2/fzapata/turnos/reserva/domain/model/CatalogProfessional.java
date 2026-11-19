@@ -43,11 +43,16 @@ public class CatalogProfessional {
         return slots;
     }
 
-    // El horario de su agenda que empieza exactamente a esa hora, si lo hay
+    // Retorna el horario de su agenda que empieza exactamente a esa hora, si lo hay.
+    // Con dos horarios que repiten el inicio, el del primer horario semanal, igual que en slotsBetween
     public Optional<Slot> slotAt(LocalDateTime start) {
-        NavigableMap<LocalDateTime, Slot> day = new TreeMap<>();
-        addSlotsOn(day, start.toLocalDate());
-        return Optional.ofNullable(day.get(start));
+        return weeklySchedules.stream() // Flujo de WeeklySchedules
+                // Flujo de slots del día start
+                .flatMap(schedule -> schedule.slotsOn(start.toLocalDate()).stream())
+                // Se queda con los que empiezan en la misma hora
+                .filter(slot -> slot.getStartTime().equals(start.toLocalTime()))
+                // Retorna solo el primero
+                .findFirst();
     }
 
     private void addSlotsOn(Map<LocalDateTime, Slot> slots, LocalDate date) {

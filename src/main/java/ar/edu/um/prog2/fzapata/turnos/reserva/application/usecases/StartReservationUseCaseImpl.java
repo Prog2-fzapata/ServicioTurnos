@@ -87,7 +87,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         Slot slot = getSlot(professional, request);
         // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
         Patient patient = toPatient(catalogClient.findAccount());
-        // Iteramos hasta maxAttempts
+        // Intentamos hasta maxAttempts
         for (int number = 1;; number++) {
             // Armamos el ReservationProcess y lo guardamos con el repository
             ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));

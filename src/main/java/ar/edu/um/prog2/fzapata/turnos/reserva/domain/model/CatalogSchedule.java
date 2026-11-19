@@ -28,7 +28,7 @@ public class CatalogSchedule {
     private int slotDurationMinutes;
     private boolean enabled;
 
-    // Los horarios que este horario semanal produce en esa fecha, en orden. Ninguno si está deshabilitado o si la
+    // Retorna los horarios para esa fecha, en orden. Vacío si está deshabilitado o si la
     // fecha cae en otro día de la semana. No resta ocupaciones ni descarta pasados
     public List<Slot> slotsOn(LocalDate date) {
         // Con duración cero o negativa el avance no progresa: se ignora el horario en vez de colgar el pedido
