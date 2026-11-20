@@ -50,7 +50,9 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
             return found;
         }
         Instant now = clock.instant();
+        // Verifica que el contexto sea apropiado para el submit
         requireSubmittable(found.get(), now);
+
         TransitionResult result = applyReservationTransition.applyTransitionOnce(id, ReservationTransition.builder()
                 .target(ReservationStatus.PHONE_QUEUED).patientPhone(PhoneNumber.normalize(phoneNumber)).build())
                 .orElseThrow(() -> new ReservationProcessNotFoundException(id));
@@ -61,15 +63,14 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
         outboxRepository.save(newOutboxEvent(result.process(), now));
         return Optional.of(result.process());
     }
-
-    private ReservationProcess requireSubmittable(ReservationProcess process, Instant now) {
+    // Verifica que status = WAITING_PHONE + requestEventId no sea null y que no haya expirado
+    private void requireSubmittable(ReservationProcess process, Instant now) {
         if (!PhoneSubmissionRules.canSubmit(process)) {
             throw new InvalidReservationStateException(process.getId(), process.getStatus());
         }
         if (process.getExpiresAt() != null && !now.isBefore(process.getExpiresAt())) {
             throw new PhoneWindowExpiredException(process.getId());
         }
-        return process;
     }
 
     private OutboxEvent newOutboxEvent(ReservationProcess queued, Instant now) {
