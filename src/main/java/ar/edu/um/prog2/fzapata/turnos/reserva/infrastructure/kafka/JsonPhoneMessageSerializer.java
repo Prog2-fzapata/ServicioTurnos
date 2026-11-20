@@ -6,18 +6,15 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneMessageSettings;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.PhoneSubmission;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.ports.out.PhoneMessageSerializer;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.kafka.dto.PhoneSubmittedMessage;
+import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
+@RequiredArgsConstructor
 public class JsonPhoneMessageSerializer implements PhoneMessageSerializer {
 
     private final JsonMapper jsonMapper;
     private final PhoneMessageSettings phoneMessageSettings;
-
-    public JsonPhoneMessageSerializer(JsonMapper jsonMapper, PhoneMessageSettings phoneMessageSettings) {
-        this.jsonMapper = jsonMapper;
-        this.phoneMessageSettings = phoneMessageSettings;
-    }
 
     @Override
     public String toPayload(PhoneSubmission submission) {

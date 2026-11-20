@@ -4,17 +4,15 @@ import org.springframework.stereotype.Component;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraEvent;
 import ar.edu.um.prog2.fzapata.turnos.reserva.infrastructure.kafka.dto.CatedraEventMessage;
+import lombok.RequiredArgsConstructor;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
+@RequiredArgsConstructor
 public class CatedraEventMapper {
 
     private final JsonMapper jsonMapper;
-
-    public CatedraEventMapper(JsonMapper jsonMapper) {
-        this.jsonMapper = jsonMapper;
-    }
 
     // Lo mínimo para poder deduplicar, ubicar el proceso y registrar el tipo; lo demás depende de cada evento
     public CatedraEvent toDomainModel(String payload) {
