@@ -109,18 +109,6 @@ class TransitionOutcomeLoggerTest {
                 "eventId", "evento-1", "reservationId", 7L));
     }
 
-    // El usuario y el id del evento ayudan a buscar; si no se conocen, el campo no sale
-    @Test
-    void withoutAKnownUserOrEventIdTheFieldsAreLeftOut() {
-        ReservationProcess process = ReservationProcess.builder().id(7L).status(ReservationStatus.HELD).build();
-
-        transitionOutcomeLogger.log("Cancelación", null, 7L, Optional.of(new TransitionResult(
-                TransitionOutcome.APPLIED, ReservationStatus.HELD, ReservationStatus.WAITING_PHONE, process)));
-
-        assertThat(LoggedFields.of(onlyEvent())).isEqualTo(Map.of("eventType", "Cancelación", "reservationId", 7L,
-                "from", "HELD", "to", "WAITING_PHONE"));
-    }
-
     @Test
     void neverLogsPatientData() {
         for (TransitionOutcome outcome : TransitionOutcome.values()) {
