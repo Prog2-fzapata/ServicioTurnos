@@ -40,7 +40,6 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnava
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentPage;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentStatus;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Cancellation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraAppointment;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraRejection;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Hold;
@@ -459,15 +458,12 @@ class CatedraApiClientAdapterTest {
                  "cancelledAt": "2026-09-11T15:10:00Z"}"""));
 
         withAdapter(adapter -> {
-            Cancellation cancellation = adapter.cancelAppointment("process-a92b47d0", "Cambio solicitado");
+            adapter.cancelAppointment("process-a92b47d0", "Cambio solicitado");
 
             FakeHttpServer.Request request = server.firstRequest();
             assertThat(request.method()).isEqualTo("POST");
             assertThat(request.rawPath()).isEqualTo("/api/appointments/process-a92b47d0/cancel");
             assertThat(JsonPath.<String>read(request.body(), "$.reason")).isEqualTo("Cambio solicitado");
-            assertThat(cancellation.getReservationId()).isEqualTo(8251L);
-            assertThat(cancellation.getReservationProcessId()).isEqualTo("process-a92b47d0");
-            assertThat(cancellation.getCancelledAt()).isEqualTo(Instant.parse("2026-09-11T15:10:00Z"));
         });
     }
 
@@ -487,9 +483,18 @@ class CatedraApiClientAdapterTest {
         server.thenRespond(status(500, ""), status(200, "{\"reservationId\": 8251}"));
 
         withAdapter(adapter -> {
-            assertThat(adapter.cancelAppointment("process-a92b47d0", null).getReservationId()).isEqualTo(8251L);
+            adapter.cancelAppointment("process-a92b47d0", null);
+
             assertThat(server.requestCount()).isEqualTo(2);
         });
+    }
+
+    @Test
+    void aCancellationAnsweredWithoutABodyIsAResponseError() {
+        server.thenRespond(status(200, ""));
+
+        withAdapter(adapter -> assertThatThrownBy(() -> adapter.cancelAppointment("process-a92b47d0", null))
+                .isInstanceOf(CatedraResponseException.class));
     }
 
     // ---------- Errores del §13: se decide por status y code
