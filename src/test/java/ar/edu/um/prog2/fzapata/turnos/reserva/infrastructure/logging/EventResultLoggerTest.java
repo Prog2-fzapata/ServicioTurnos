@@ -100,7 +100,7 @@ class EventResultLoggerTest {
 
     @Test
     void aDuplicateIsInfo() {
-        eventResultLogger.log(EVENT, EventResult.without(EventOutcome.DUPLICATE));
+        eventResultLogger.log(EVENT, EventResult.ignored(EventOutcome.DUPLICATE));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.INFO);
@@ -111,7 +111,7 @@ class EventResultLoggerTest {
 
     @Test
     void anUnknownReservationIsAWarningWithTheCatedraProcessId() {
-        eventResultLogger.log(EVENT, EventResult.without(EventOutcome.UNKNOWN_PROCESS));
+        eventResultLogger.log(EVENT, EventResult.ignored(EventOutcome.UNKNOWN_PROCESS));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
@@ -123,7 +123,7 @@ class EventResultLoggerTest {
     @Test
     void anUnknownTypeIsAWarning() {
         eventResultLogger.log(new CatedraEvent("evento-2", "AlgoNuevo", "process-1", null, null, null),
-                EventResult.without(EventOutcome.UNKNOWN_TYPE));
+                EventResult.ignored(EventOutcome.UNKNOWN_TYPE));
 
         ILoggingEvent event = onlyEvent();
         assertThat(event.getLevel()).isEqualTo(Level.WARN);

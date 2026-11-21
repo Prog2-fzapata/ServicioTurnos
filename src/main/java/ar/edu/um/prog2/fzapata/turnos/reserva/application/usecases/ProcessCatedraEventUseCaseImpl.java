@@ -36,7 +36,7 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
     @Transactional
     public EventResult processEvent(CatedraEvent event) {
         if (processedEventRepository.existsById(event.eventId())) {
-            return EventResult.without(EventOutcome.DUPLICATE);
+            return EventResult.ignored(EventOutcome.DUPLICATE);
         }
         EventResult result = apply(event);
         processedEventRepository.save(ProcessedEvent.builder().eventId(event.eventId())
@@ -47,12 +47,12 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
     private EventResult apply(CatedraEvent event) {
         Optional<ReservationTransition> transition = event.toTransition();
         if (transition.isEmpty()) {
-            return EventResult.without(EventOutcome.UNKNOWN_TYPE);
+            return EventResult.ignored(EventOutcome.UNKNOWN_TYPE);
         }
         Optional<ReservationProcess> process = reservationProcessRepository
                 .findByReservationProcessId(event.reservationProcessId());
         if (process.isEmpty()) {
-            return EventResult.without(EventOutcome.UNKNOWN_PROCESS);
+            return EventResult.ignored(EventOutcome.UNKNOWN_PROCESS);
         }
         Long processId = process.get().getId();
         TransitionResult result = applyReservationTransition.applyTransitionOnce(processId, transition.get())

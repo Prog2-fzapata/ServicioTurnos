@@ -178,7 +178,7 @@ class ReservaServiceTest {
 
     @Test
     void returnsTheResultOfProcessingTheEvent() {
-        EventResult result = EventResult.without(EventOutcome.DUPLICATE);
+        EventResult result = EventResult.ignored(EventOutcome.DUPLICATE);
         when(processCatedraEventUseCase.processEvent(EVENT)).thenReturn(result);
 
         assertThat(reservaService.processEvent(EVENT)).isSameAs(result);
@@ -187,7 +187,7 @@ class ReservaServiceTest {
     // El reintento vive acá, fuera de la transacción del caso de uso: cada intento es una transacción nueva
     @Test
     void aVersionConflictRepeatsTheWholeEvent() {
-        EventResult result = EventResult.without(EventOutcome.UNKNOWN_PROCESS);
+        EventResult result = EventResult.ignored(EventOutcome.UNKNOWN_PROCESS);
         when(processCatedraEventUseCase.processEvent(EVENT)).thenThrow(new ReservationConflictException(7L, null))
                 .thenThrow(new ReservationConflictException(7L, null)).thenReturn(result);
 
