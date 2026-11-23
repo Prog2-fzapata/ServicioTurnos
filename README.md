@@ -467,4 +467,4 @@ Los tests de integración levantan su propio PostgreSQL 18 en un contenedor desc
 
 ## Decisiones de diseño
 
-El registro de decisiones técnicas, con alternativas descartadas y justificación, está en [docs/decisiones.md](docs/decisiones.md).
+El registro de decisiones técnicas, con alternativas descartadas y justificación, está en [docs/decisiones/](docs/decisiones/README.md): una decisión por archivo.

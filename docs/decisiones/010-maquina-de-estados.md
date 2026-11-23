@@ -1,0 +1,27 @@
+# 010. Modelar la reserva como máquina de estados con bloqueo optimista
+
+**Estado:** aceptada
+
+## Contexto
+
+una reserva recorre varios estados mientras REST y Kafka le llegan en momentos distintos y a veces a la vez. Hace falta decidir qué pasos son válidos, qué pasa con un paso inválido o repetido, y cómo evitar que dos operaciones se pisen. Las transiciones y sus reglas están en [maquina-de-estados.md](../maquina-de-estados.md).
+
+## Decisión
+
+- **Transiciones.** `ReservationStatus` define los 9 estados y `canTransitionTo` la tabla del diagrama. `EXPIRED`, `FAILED` y `CANCELLED` son finales; `CONFIRMED` solo puede pasar a `CANCELLED`. Se agregaron dos pasos que el diagrama no tenía, `PHONE_QUEUED → CONFIRMED` y `PHONE_QUEUED → WAITING_PHONE`: la cátedra puede responder antes de que el relay anote que el teléfono se envió, y sin ellos un evento válido se ignoraría.
+- **Un solo lugar donde se cambia el estado.** `ApplyReservationTransitionUseCase` recibe el id del proceso y una `ReservationTransition` (estado destino y datos opcionales). Copia solo los datos presentes, actualiza `updatedAt` y, al cancelar, `cancelledAt`.
+- **Resultado, no excepción.** `APPLIED`; `ALREADY_IN_STATE` si ya estaba en el destino (se mira antes que la tabla, así repetir un paso es inocuo); `REJECTED` si el diagrama no lo permite (se ignora y no se escribe nada). Un proceso inexistente devuelve vacío y `ReservaService` lo traduce a una excepción. Cada llamador decide qué hacer con `REJECTED` (por ejemplo, la cancelación lo convierte en `409`).
+- **Bloqueo optimista.** La columna `version` de la migración V1 es la `@Version` de la entity. Si otra operación cambió el proceso entre la lectura y el guardado, el adapter lanza `ReservationConflictException`; el caso de uso relee el proceso y vuelve a decidir sobre el estado vigente, hasta `RESERVATION_CONFLICT_MAX_ATTEMPTS` intentos en total (3 por defecto, mínimo 1, el entorno gana). Agotados los intentos, relanza el conflicto.
+- **Capas.** El modelo no tiene lógica; la política de reintento llega al caso de uso como un registro del dominio (`ConflictRetryPolicy`) que arma la configuración. El caso de uso no loguea: `TransitionOutcomeLogger`, en infraestructura, registra el resultado sin datos del paciente.
+
+## Alternativas descartadas
+
+- Un método por transición en el modelo (`markConfirmed(...)`): más expresivo, pero reparte las reglas entre varios métodos y se aparta de la convención de la cátedra.
+- Lanzar una excepción ante una transición inválida: un evento tardío o duplicado de Kafka haría fallar al consumidor.
+- Bloqueo pesimista (`SELECT ... FOR UPDATE`): serializa todo y retiene la conexión; los conflictos son raros y el reintento es barato.
+- Que cada llamador implemente su reintento: el mismo bucle repetido en seis casos de uso.
+- Usar el `RetryTemplate` de Spring dentro de la aplicación: rompe la regla de que la aplicación no depende del framework.
+
+## Consecuencias
+
+repetir el reintento es seguro porque los estados solo avanzan, pero **no es válido dentro de una transacción abierta**: un fallo de versión la marca para deshacer. Los casos de uso que necesiten el cambio de estado junto con otra escritura en la misma transacción (el consumidor de Kafka con `processed_events`, el envío del teléfono con el outbox) ponen el reintento por fuera ([decisión 013](013-consumer-de-eventos-de-la-catedra.md) y [decisión 014](014-envio-del-telefono-con-outbox.md)). La entity y el modelo de dominio repiten la lista de campos a propósito (la convención de la cátedra pide una clase separada para la entity): SonarCloud lo marcaba como duplicación del 4,4 % y se excluyen las entities del análisis de duplicación en el `pom.xml` (`sonar.cpd.exclusions`); el resto del código sigue sujeto al umbral de 3 %. Los tests cubren la tabla completa de 81 pares, el caso de uso con mocks y PostgreSQL real con carreras entre hilos (el mismo paso dos veces a la vez y cuatro respuestas distintas a la vez, comprobando que ninguna actualización se pierde y que los cambios forman una cadena válida); se verificó rompiendo el código a propósito en 18 puntos.

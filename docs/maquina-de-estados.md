@@ -50,4 +50,4 @@ stateDiagram-v2
 - **Respuesta perdida del hold:** la cátedra no tiene idempotencia ni permite recuperar los ids de un hold. Un proceso en `HOLD_REQUESTED` sin respuesta pasa a `FAILED`; antes de crear otro hold se consultan las ocupaciones del profesional, y si el horario aparece `HELD` se espera su `expiresAt` sin asumir que el hold es nuestro. Un `409` nunca se toma como «es mi hold».
 - Cada proceso guarda el usuario dueño, el `reservationProcessId` y el `holdId` de la cátedra, el `requestEventId`, `expiresAt`, los datos del horario y los datos descriptivos del profesional al momento de reservar.
 
-Las decisiones y las alternativas descartadas están en [decisiones.md](decisiones.md), entrada 10.
+Las decisiones y las alternativas descartadas están en [decisiones/010-maquina-de-estados.md](decisiones/010-maquina-de-estados.md).
