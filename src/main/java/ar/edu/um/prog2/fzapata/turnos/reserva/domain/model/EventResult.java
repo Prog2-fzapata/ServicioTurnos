@@ -8,7 +8,7 @@ public record EventResult(EventOutcome outcome, TransitionResult transition) {
     // La transición está si y solo si el evento se procesó: cualquier otra combinación no tiene sentido
     public EventResult {
         Objects.requireNonNull(outcome, "outcome");
-        if ((outcome == EventOutcome.PROCESSED) != (transition != null)) {
+        if ((outcome == EventOutcome.PROCESSED) == (transition == null)) {
             throw new IllegalArgumentException(
                     "Un evento " + outcome + (transition == null ? " necesita su transición" : " no lleva transición"));
         }

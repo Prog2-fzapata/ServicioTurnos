@@ -62,9 +62,13 @@ public class ReservationController {
     @GetMapping
     public ResponseEntity<List<ReservationResponse>> listReservations(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @Parameter(description = "Solo las reservas en este estado") @RequestParam(required = false)
-            ReservationStatus status,
+
+            @Parameter(description = "Solo las reservas en este estado")
+            @RequestParam(required = false) ReservationStatus status,
+
+            // Pageable incluye page y size, default 0 y 20
             @ParameterObject Pageable pageable) {
+
         PagedResult<ReservationProcess> result = reservaService.listReservations(
                 jwt.getClaimAsString(JwtClaims.USER_ID), status, reservationDtoMapper.toPageQuery(pageable));
         return ResponseEntity.ok()
@@ -75,7 +79,8 @@ public class ReservationController {
 
     @Operation(summary = "Devuelve una reserva del usuario. Una ajena responde 404, igual que una inexistente")
     @GetMapping("/{id}")
-    public ReservationResponse getReservation(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+    public ReservationResponse getReservation(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id) {
         return reservationDtoMapper
                 .toResponse(reservaService.getReservation(id, jwt.getClaimAsString(JwtClaims.USER_ID)));
@@ -84,8 +89,10 @@ public class ReservationController {
     @Operation(summary = "Cancela una reserva confirmada del usuario. El motivo es opcional. Cancelar una ya "
             + "cancelada devuelve su estado actual")
     @PostMapping("/{id}/cancel")
-    public ReservationResponse cancelReservation(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @PathVariable Long id, @Valid @RequestBody(required = false) CancelReservationRequest request) {
+    public ReservationResponse cancelReservation(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) CancelReservationRequest request) {
         ReservationProcess process = reservaService.cancelReservation(id, jwt.getClaimAsString(JwtClaims.USER_ID),
                 reservationDtoMapper.toReason(request));
         reservationActionLogger.cancelled(process);
@@ -96,8 +103,10 @@ public class ReservationController {
             + "cátedra ya recibido (canSubmitPhone). La deja en PHONE_QUEUED y responde 202: el resultado final "
             + "llega después, cuando la cátedra confirma o rechaza")
     @PostMapping("/{id}/phone")
-    public ResponseEntity<ReservationResponse> submitPhone(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @PathVariable Long id, @Valid @RequestBody SubmitPhoneRequest request) {
+    public ResponseEntity<ReservationResponse> submitPhone(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id,
+            @Valid @RequestBody SubmitPhoneRequest request) {
         ReservationProcess process = reservaService.submitPhone(id, jwt.getClaimAsString(JwtClaims.USER_ID),
                 request.getPhoneNumber());
         reservationActionLogger.phoneReceived(process);

@@ -18,10 +18,18 @@ public class JsonPhoneMessageSerializer implements PhoneMessageSerializer {
 
     @Override
     public String toPayload(PhoneSubmission submission) {
-        return jsonMapper.writeValueAsString(new PhoneSubmittedMessage(submission.eventId(),
-                PhoneSubmittedMessage.EVENT_TYPE, phoneMessageSettings.accountGroupId(),
-                submission.reservationProcessId(), submission.holdId(), submission.requestEventId(),
-                new PhoneSubmittedMessage.Information(submission.phoneNumber()), submission.occurredAt(),
-                PhoneSubmittedMessage.SCHEMA_VERSION));
+
+        PhoneSubmittedMessage message = new PhoneSubmittedMessage(
+                submission.eventId(),
+                PhoneSubmittedMessage.EVENT_TYPE,
+                phoneMessageSettings.accountGroupId(),
+                submission.reservationProcessId(),
+                submission.holdId(),
+                submission.requestEventId(),
+                new PhoneSubmittedMessage.Information(submission.phoneNumber()),
+                submission.occurredAt(),
+                PhoneSubmittedMessage.SCHEMA_VERSION);
+
+        return jsonMapper.writeValueAsString(message);
     }
 }

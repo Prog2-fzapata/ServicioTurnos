@@ -33,12 +33,14 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
     @Override
     public Optional<TransitionResult> applyTransition(Long processId, ReservationTransition transition) {
         for (int attemptNumber = 1;; attemptNumber++) {
-            // Traemos el ReservationProcess
+            // Traemos el ReservationProcess por ID
             Optional<ReservationProcess> found = reservationProcessRepository.findById(processId);
+            // Nos aseguramos que exista, si no empty.
             if (found.isEmpty()) {
                 return Optional.empty();
             }
             try {
+                // Intentamos hacer la transición
                 return Optional.of(attempt(found.get(), transition));
             } catch (ReservationConflictException e) {
                 if (attemptNumber >= conflictRetryPolicy.maxAttempts()) {
@@ -62,6 +64,7 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
         if (from == target) {
             return sameState(process, transition);
         }
+        // Si la transición no es válida de from a target, REJECTED
         if (!from.canTransitionTo(target)) {
             return new TransitionResult(TransitionOutcome.REJECTED, from, target, process);
         }
@@ -73,6 +76,7 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
             process.setCancelledAt(now);
         }
         ReservationProcess saved = reservationProcessRepository.save(process);
+
         reservationChangePublisher.publish(saved);
         return new TransitionResult(TransitionOutcome.APPLIED, from, target, saved);
     }
@@ -80,18 +84,22 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
     // Un proceso final es inmutable: ni siquiera se le completan datos
     private TransitionResult sameState(ReservationProcess process, ReservationTransition transition) {
         ReservationStatus status = process.getStatus();
+        // Si el estado es final o transition no trae nada nuevo
+        // Si trajo algún campo nuevo que no tuviera ya valor, copyData hace el set
         if (status.isFinal() || !copyData(process, transition, true)) {
             return new TransitionResult(TransitionOutcome.ALREADY_IN_STATE, status, status, process);
         }
         process.setUpdatedAt(clock.instant());
         ReservationProcess saved = reservationProcessRepository.save(process);
-        // El estado no cambia pero sí lo que ve la app (por ejemplo canSubmitPhone con el pedido de teléfono)
+
+        // El estado no cambia, pero sí lo que ve la app (por ejemplo canSubmitPhone con el pedido de teléfono)
         reservationChangePublisher.publish(saved);
         return new TransitionResult(TransitionOutcome.DATA_COMPLETED, status, status, saved);
     }
 
     // Solo se copia lo que vino: un null no borra el teléfono, el vencimiento ni los ids que el proceso ya tenía.
-    // Con onlyMissing no se pisa nada que el proceso ya tenga. Devuelve si copió algo
+    // Con onlyMissing no se pisa nada que el proceso ya tenga.
+    // Devuelve true, si copió algo
     private boolean copyData(ReservationProcess process, ReservationTransition transition, boolean onlyMissing) {
         boolean copied = copy(transition.holdId(), process.getHoldId(), process::setHoldId, onlyMissing);
         copied |= copy(transition.reservationProcessId(), process.getReservationProcessId(),
@@ -109,10 +117,13 @@ public class ApplyReservationTransitionUseCaseImpl implements ApplyReservationTr
         return copied;
     }
 
+    // Retorna true solo si hace el set, incoming no debe ser null
+    // Si Only missing es true, rechaza los cambios sobre currents con valor, solo hace set sobre nulls
     private static <T> boolean copy(T incoming, T current, Consumer<T> setter, boolean onlyMissing) {
         if (incoming == null || (onlyMissing && current != null)) {
             return false;
         }
+        // Ejecuta el setter con el valor que le pasas
         setter.accept(incoming);
         return true;
     }

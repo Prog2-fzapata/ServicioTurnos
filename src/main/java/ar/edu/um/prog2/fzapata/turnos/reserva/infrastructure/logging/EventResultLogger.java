@@ -20,25 +20,33 @@ public class EventResultLogger {
 
     private final TransitionOutcomeLogger transitionOutcomeLogger;
 
+    // Como loguear según cada tipo de outcome
     public void log(CatedraEvent event, EventResult result) {
         switch (result.outcome()) {
+
             case PROCESSED -> {
                 TransitionResult transition = result.transition();
                 Long reservationId = transition.process().getId();
+                // Si lo que procesó fue el número de teléfono, se distingue
                 if (isPhoneRequestThatCompletedData(event, transition)) {
+
                     LogFields.reservation(LogFields.origin(log.atInfo().setMessage("Pedido de teléfono registrado"),
                             event.eventType(), event.eventId()), reservationId, transition.process().getUserId())
                             .log();
+                // Cualquier otro evento procesado se registra su transición
                 } else {
                     transitionOutcomeLogger.log(event.eventType(), event.eventId(), reservationId,
                             Optional.of(transition));
                 }
             }
+
             case DUPLICATE -> LogFields.origin(log.atInfo().setMessage("Evento ya procesado, se ignora"),
                     event.eventType(), event.eventId()).log();
+
             case UNKNOWN_PROCESS -> LogFields.origin(log.atWarn().setMessage("Evento de una reserva desconocida, "
                     + "se ignora"), event.eventType(), event.eventId())
                     .addKeyValue("reservationProcessId", event.reservationProcessId()).log();
+
             case UNKNOWN_TYPE -> LogFields.origin(log.atWarn().setMessage("Tipo de evento que no se trata, se ignora"),
                     event.eventType(), event.eventId()).log();
         }

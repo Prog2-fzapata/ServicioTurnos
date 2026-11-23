@@ -16,6 +16,7 @@ public enum ReservationStatus {
     CANCELLED;
 
     // Intentos que terminaron sin llegar a una reserva: «mis reservas» los oculta salvo que se pida su estado
+    // Cancelled no porque puede ser una reserva que se concretó y luego se canceló
     public static final List<ReservationStatus> DISCARDED = List.of(EXPIRED, FAILED);
 
     // Los que la tarea de vencimiento puede cerrar: tienen un expiresAt y siguen abiertos. HOLD_REQUESTED aún no lo

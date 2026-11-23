@@ -18,8 +18,8 @@ public class CatedraEventListener {
     private final CatedraEventMapper catedraEventMapper;
     private final EventResultLogger eventResultLogger;
 
-    // El offset se confirma recién cuando el caso de uso terminó y su transacción hizo COMMIT. Si lanza, no se
-    // confirma y el manejador de errores reintenta; Kafka reentrega y el eventId evita repetir el efecto
+    // El offset se confirma recién cuando el caso de uso terminó y su transacción hizo COMMIT.
+    // Si lanza, no se confirma y el manejador de errores reintenta; Kafka reentrega, el eventId evita repetir el efecto
     @KafkaListener(topics = "${catedra.kafka.appointment-actions-topic}")
     public void onEvent(String payload, Acknowledgment acknowledgment) {
         CatedraEvent event = catedraEventMapper.toDomainModel(payload);

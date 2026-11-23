@@ -23,7 +23,7 @@ public class ReservationActionLogger {
     public void cancelled(ReservationProcess process) {
         logged(log.atInfo().setMessage("Reserva cancelada"), process);
     }
-
+    // Detalla processId, userId y status
     private static void logged(LoggingEventBuilder event, ReservationProcess process) {
         LogFields.reservation(event, process.getId(), process.getUserId())
                 .addKeyValue("status", process.getStatus().name()).log();

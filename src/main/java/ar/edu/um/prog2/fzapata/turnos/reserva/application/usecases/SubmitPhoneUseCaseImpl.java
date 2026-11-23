@@ -74,12 +74,26 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
     }
 
     private OutboxEvent newOutboxEvent(ReservationProcess queued, Instant now) {
+        // eventId tiene un prefijo + 36 dígitos hexadecimales random 8-4-4-4-12
         String eventId = "phone-submitted-" + UUID.randomUUID();
-        String payload = phoneMessageSerializer.toPayload(new PhoneSubmission(eventId,
-                queued.getReservationProcessId(), queued.getHoldId(), queued.getRequestEventId(),
-                queued.getPatientPhone(), now));
-        return OutboxEvent.builder().eventId(eventId).reservationProcessId(queued.getReservationProcessId())
-                .topic(phoneMessageSettings.topic()).messageKey(queued.getReservationProcessId()).payload(payload)
-                .status(OutboxStatus.PENDING).createdAt(now).build();
+
+        PhoneSubmission submission = new PhoneSubmission(
+                eventId,
+                queued.getReservationProcessId(),
+                queued.getHoldId(),
+                queued.getRequestEventId(),
+                queued.getPatientPhone(),
+                now);
+
+        String payload = phoneMessageSerializer.toPayload(submission);
+
+        return OutboxEvent.builder()
+                .eventId(eventId)
+                .reservationProcessId(queued.getReservationProcessId())
+                .topic(phoneMessageSettings.topic())
+                .messageKey(queued.getReservationProcessId())
+                .payload(payload) // Jackson se encarga de darle el formato
+                .status(OutboxStatus.PENDING)
+                .createdAt(now).build();
     }
 }

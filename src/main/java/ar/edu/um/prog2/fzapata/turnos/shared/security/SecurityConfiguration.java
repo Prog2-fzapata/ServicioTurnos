@@ -32,6 +32,7 @@ public class SecurityConfiguration {
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler))
+
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler)

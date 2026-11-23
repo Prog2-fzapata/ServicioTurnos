@@ -35,19 +35,24 @@ public class MarkPhoneSentUseCaseImpl implements MarkPhoneSentUseCase {
     public Optional<TransitionResult> markSent(OutboxEvent event) {
         OutboxEvent stored = outboxRepository.findById(event.getId())
                 .orElseThrow(() -> new IllegalStateException("No existe el mensaje " + event.getId()));
+        // Es una defensa, con un único relay no ocurre
         if (stored.getStatus() == OutboxStatus.SENT) {
             return Optional.empty();
         }
+
         ReservationProcess process = reservationProcessRepository
                 .findByReservationProcessId(stored.getReservationProcessId())
                 .orElseThrow(() -> new IllegalStateException(
                         "El mensaje " + stored.getEventId() + " no tiene proceso de reserva"));
+
         TransitionResult result = applyReservationTransition
                 .applyTransitionOnce(process.getId(), ReservationTransition.to(ReservationStatus.PHONE_SUBMITTED))
                 .orElseThrow(() -> new ReservationProcessNotFoundException(process.getId()));
+
         stored.setStatus(OutboxStatus.SENT);
         stored.setSentAt(clock.instant());
         outboxRepository.save(stored);
+
         return Optional.of(result);
     }
 }
