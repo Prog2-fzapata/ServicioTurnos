@@ -32,36 +32,47 @@ public class ReservationStreamRegistry implements SmartLifecycle {
 
     private final StreamProperties properties;
     private final Clock clock;
+    private volatile boolean running; // Variable que usa internamente Spring
+    // Llevamos un map de las conexiones de los usuarios. Key = userId; Value: List<Connection>
     private final Map<String, List<Connection>> connections = new ConcurrentHashMap<>();
-    private volatile boolean running;
 
-    // tokenExpiresAt es null si el JWT no trae exp: esa conexión no se cierra por vencimiento
+    // Agrupamos el emisor con su expiración
     private record Connection(SseEmitter emitter, Instant tokenExpiresAt) {
     }
 
     // El primer envío manda las cabeceras: sin él el cliente esperaría hasta el primer evento o latido
     public SseEmitter register(String userId, Instant tokenExpiresAt) {
+        // Sin timeout para cerrar la conexión
         SseEmitter emitter = new SseEmitter(0L);
         Connection connection = new Connection(emitter, tokenExpiresAt);
+
+        // Si el cliente se desconectó o alguien llamó a complete() -> remove connection
         emitter.onCompletion(() -> remove(userId, connection));
+        // Falla una escritura -> remove connection
         emitter.onError(error -> remove(userId, connection));
 
+        // Lista para cerrar
         List<Connection> evicted = new ArrayList<>();
+
         connections.compute(userId, (key, current) -> {
+            // Copiamos el arraylist de conexiones o creamos uno nuevo si null y añadimos la nueva
             List<Connection> updated = current == null ? new ArrayList<>() : new ArrayList<>(current);
             updated.add(connection);
+            // Si supera el tamaño máximo remueve la más antigua
             while (updated.size() > properties.maxConnectionsPerUser()) {
                 evicted.add(updated.removeFirst());
             }
             return updated;
         });
+        // Cerrar las que sobran
         evicted.forEach(this::complete);
-
+        // Entrega el primer ping
         deliver(userId, connection, SseEmitter.event().comment(PING));
         return emitter;
     }
-
+    // Recorre las conexiones de un user y deliver las escribe. Se llama cuando una reserva cambia
     public void send(String userId, String eventId, Object data) {
+        // getOrDefault devuelve la lista o una lista vacía, en ese caso no itera
         for (Connection connection : connections.getOrDefault(userId, List.of())) {
             deliver(userId, connection,
                     SseEmitter.event().name(EVENT_NAME).id(eventId).data(data, MediaType.APPLICATION_JSON));
@@ -72,7 +83,7 @@ public class ReservationStreamRegistry implements SmartLifecycle {
     public void heartbeat() {
         Instant now = clock.instant();
         connections.forEach((userId, current) -> current.forEach(connection -> {
-            if (connection.tokenExpiresAt() != null && !connection.tokenExpiresAt().isAfter(now)) {
+            if (!connection.tokenExpiresAt().isAfter(now)) {
                 remove(userId, connection);
                 complete(connection);
             } else {
@@ -109,14 +120,15 @@ public class ReservationStreamRegistry implements SmartLifecycle {
         return connections.getOrDefault(userId, List.of()).size();
     }
 
+    // Quita una conexión de la lista del usuario
     private void remove(String userId, Connection connection) {
         connections.computeIfPresent(userId, (key, current) -> {
             List<Connection> updated = new ArrayList<>(current);
             updated.remove(connection);
-            return updated.isEmpty() ? null : updated;
+            return updated.isEmpty() ? null : updated; // Si retorna null, compute elimina la key
         });
     }
-
+    // Cierra la respuesta
     private void complete(Connection connection) {
         try {
             connection.emitter().complete();

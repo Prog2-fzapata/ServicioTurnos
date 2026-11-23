@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -130,8 +131,8 @@ class CancelReservationUseCaseImplTest {
     @Test
     void ifTheCatedraCannotCancelItTheProcessDoesNotChange() {
         owns(process(ReservationStatus.CONFIRMED));
-        when(catedraApiClient.cancelAppointment("process-1", null))
-                .thenThrow(rejected(CatedraRejection.RESERVATION_NOT_CANCELLABLE));
+        doThrow(rejected(CatedraRejection.RESERVATION_NOT_CANCELLABLE)).when(catedraApiClient)
+                .cancelAppointment("process-1", null);
 
         assertThatThrownBy(() -> useCase.cancelReservation(ID, USER, null))
                 .isInstanceOf(ReservationNotCancellableException.class);
@@ -143,7 +144,7 @@ class CancelReservationUseCaseImplTest {
     @EnumSource(value = CatedraRejection.class, names = {"RESERVATION_NOT_FOUND", "SLOT_ALREADY_HELD", "HOLD_EXPIRED"})
     void anyOtherRejectionIsAMismatchBetweenTheServices(CatedraRejection rejection) {
         owns(process(ReservationStatus.CONFIRMED));
-        when(catedraApiClient.cancelAppointment("process-1", null)).thenThrow(rejected(rejection));
+        doThrow(rejected(rejection)).when(catedraApiClient).cancelAppointment("process-1", null);
 
         assertThatThrownBy(() -> useCase.cancelReservation(ID, USER, null))
                 .isInstanceOf(CatedraResponseException.class).hasMessageContaining(rejection.name());
@@ -155,7 +156,7 @@ class CancelReservationUseCaseImplTest {
     void ifTheCatedraIsDownTheFailureReachesTheCallerAndTheProcessDoesNotChange() {
         owns(process(ReservationStatus.CONFIRMED));
         CatedraUnavailableException down = new CatedraUnavailableException("caída", null);
-        when(catedraApiClient.cancelAppointment("process-1", null)).thenThrow(down);
+        doThrow(down).when(catedraApiClient).cancelAppointment("process-1", null);
 
         assertThatThrownBy(() -> useCase.cancelReservation(ID, USER, null)).isSameAs(down);
 

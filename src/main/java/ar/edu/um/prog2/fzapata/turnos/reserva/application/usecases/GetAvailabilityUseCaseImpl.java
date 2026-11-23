@@ -8,7 +8,6 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AgendaSlots;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Availability;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AvailabilityQuery;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
@@ -38,7 +37,7 @@ public class GetAvailabilityUseCaseImpl implements GetAvailabilityUseCase {
         CatalogProfessional professional = found.get();
         professionalGuard.requireEnabled(professional);
 
-        Map<LocalDateTime, Slot> slots = AgendaSlots.generate(professional, query.from(), query.to());
+        Map<LocalDateTime, Slot> slots = professional.slotsBetween(query.from(), query.to());
         // CONFIRMED y también HELD: un hold puede vencer, pero ofrecerlo terminaría en un 409 al reservar
         List<Occupancy> occupancies = catedraApiClient.findOccupancies(query.professionalId(), query.from(),
                 query.to());

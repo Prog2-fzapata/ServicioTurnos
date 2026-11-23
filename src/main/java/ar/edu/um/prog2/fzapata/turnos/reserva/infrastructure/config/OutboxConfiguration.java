@@ -14,11 +14,12 @@ import ar.edu.um.prog2.fzapata.turnos.shared.config.OutboxProperties;
 @EnableConfigurationProperties(OutboxProperties.class)
 public class OutboxConfiguration {
 
+    // Batch de publicación hacia Kafka (50)
     @Bean
     RelayBatchPolicy relayBatchPolicy(OutboxProperties properties) {
         return new RelayBatchPolicy(properties.relayBatchSize());
     }
-
+    // Topic y Group id. Usado para armar el payload en phoneSubmit
     @Bean
     PhoneMessageSettings phoneMessageSettings(CatedraKafkaProperties properties) {
         return new PhoneMessageSettings(properties.appointmentPhoneTopic(), properties.accountGroupId());

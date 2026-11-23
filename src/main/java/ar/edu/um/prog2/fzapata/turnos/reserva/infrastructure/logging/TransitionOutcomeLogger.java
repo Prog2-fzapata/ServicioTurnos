@@ -14,11 +14,11 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class TransitionOutcomeLogger {
 
-    // eventType y eventId dicen qué evento disparó el cambio; eventId puede ser null
+    // eventType y eventId dicen qué evento disparó el cambio
     public void log(String eventType, String eventId, Long reservationId, Optional<TransitionResult> result) {
         if (result.isEmpty()) {
             LogFields.reservation(LogFields.origin(log.atWarn().setMessage("Reserva inexistente"), eventType, eventId),
-                    reservationId, null).log();
+                    reservationId).log();
             return;
         }
         TransitionResult transition = result.get();

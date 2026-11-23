@@ -43,7 +43,7 @@ final class CatedraErrorTranslator {
 
     private CatedraErrorTranslator() {
     }
-
+    // Traduce el code de RestClientException al código interno
     static RuntimeException translate(RestClientException e) {
         return switch (e) {
             case RestClientResponseException response -> translateResponse(response);
@@ -67,21 +67,25 @@ final class CatedraErrorTranslator {
     // inesperado
     private static RuntimeException translateResponse(RestClientResponseException e) {
         int status = e.getStatusCode().value();
+        // Si es un 500
         if (e.getStatusCode().is5xxServerError()) {
             log.atWarn().setMessage("La cátedra respondió con un error del servidor").addKeyValue("status", status).log();
             return new CatedraUnavailableException("La cátedra no está disponible (" + status + ")", null);
         }
+        // Si es 401 o 403
         if (status == 401 || status == 403) {
             log.atError().setMessage("La cátedra rechazó el JWT técnico, revisar CATEDRA_JWT")
                     .addKeyValue("status", status).log();
             return new CatedraAuthenticationException(
                     "La cátedra rechazó el JWT técnico (" + status + "): revisar CATEDRA_JWT", null);
         }
+        // Si no, extraemos el code y comparamos con la tabla del contrato de la cátedra
         String code = codeOf(e);
         CatedraRejection rejection = REJECTIONS.get(status + ":" + code);
         if (rejection != null) {
             return new CatedraRejectedException(rejection);
         }
+        // Si aún así no identificamos el error, logueamos y CatedraResponseException
         log.atError().setMessage("La cátedra respondió con un error que turnos no esperaba")
                 .addKeyValue("status", status).addKeyValue("code", code).log();
         return new CatedraResponseException("La cátedra respondió " + status + (code == null ? "" : " " + code), null);

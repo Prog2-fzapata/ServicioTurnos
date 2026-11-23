@@ -25,16 +25,21 @@ public class KafkaPhonePublisher implements PhonePublisher {
     @Override
     public void publish(String topic, String key, String payload) {
         try {
-            kafkaTemplate.send(topic, key, payload).get(outboxProperties.publishTimeout().toMillis(),
-                    TimeUnit.MILLISECONDS);
+            // Se envía el evento con un timeout determinado
+            // GET devuelve SendResult que no nos interesa, si llega se ignora. Si no, TimeoutException
+            kafkaTemplate.send(topic, key, payload)
+                    .get(outboxProperties.publishTimeout().toMillis(), TimeUnit.MILLISECONDS);
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PhonePublishException("Se interrumpió la espera de la confirmación de Kafka", e);
+
         } catch (ExecutionException | TimeoutException e) {
             throw new PhonePublishException("Kafka no confirmó el mensaje", e);
+
         } catch (org.springframework.kafka.KafkaException | org.apache.kafka.common.KafkaException e) {
-            // send() falla de forma síncrona si no consigue los metadatos del broker dentro de max.block.ms. Es una
-            // publicación que no se hizo como cualquier otra: el mensaje queda pendiente y suma un intento
+            // send() falla de forma síncrona si no consigue los metadatos del broker dentro de max.block.ms. .
+            // Es una publicación que no se hizo como cualquier otra: el mensaje queda pendiente y suma un intento
             throw new PhonePublishException("No se pudo enviar el mensaje a Kafka", e);
         }
     }

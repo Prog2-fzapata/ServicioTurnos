@@ -241,7 +241,7 @@ class StartReservationUseCaseImplTest {
         when(catedraApiClient.createHold(15L, DATE, START, "42")).thenReturn(hold("1"));
         when(catedraApiClient.confirmHold("hold-1", "42", "Juan", "Perez")).thenReturn(confirmation("1"));
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(result.getHoldId()).isEqualTo("hold-1");
@@ -276,7 +276,7 @@ class StartReservationUseCaseImplTest {
             return confirmation("1");
         });
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(result.getRequestEventId()).isEqualTo("request-event-1");
@@ -307,7 +307,7 @@ class StartReservationUseCaseImplTest {
         when(catedraApiClient.createHold(15L, DATE, START, "42")).thenReturn(hold("1"));
         when(catedraApiClient.confirmHold("hold-1", "42", "Juan", "Perez")).thenReturn(confirmation("1"));
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getPatientFirstName()).isEqualTo("Juan");
         assertThat(result.getPatientLastName()).isEqualTo("Perez");
@@ -323,10 +323,11 @@ class StartReservationUseCaseImplTest {
     }
 
     @Test
-    void aMissingProfessionalIsEmptyAndNothingElseIsAsked() {
+    void aMissingProfessionalIsAProfessionalNotFoundAndNothingElseIsAsked() {
         when(catalogClient.findProfessional(15L)).thenReturn(Optional.empty());
 
-        assertThat(useCase.startReservation(REQUEST)).isEmpty();
+        assertThatThrownBy(() -> useCase.startReservation(REQUEST)).isInstanceOf(ProfessionalNotFoundException.class)
+                .hasMessageContaining("15");
         verify(catalogClient, never()).findAccount();
         verifyNoInteractions(catedraApiClient);
         assertThat(store.processes).isEmpty();
@@ -390,7 +391,7 @@ class StartReservationUseCaseImplTest {
                 .thenReturn(confirmation("1"));
 
         assertThat(useCase.startReservation(new ReservationRequest("42", 15L, LocalDate.of(2026, 10, 12),
-                LocalTime.of(10, 30)))).isPresent();
+                LocalTime.of(10, 30)))).isNotNull();
     }
 
     // Sin nombre no se pide ningún hold: no queda nada bloqueado en la cátedra ni un proceso a medias
@@ -414,7 +415,7 @@ class StartReservationUseCaseImplTest {
         when(catedraApiClient.createHold(15L, DATE, START, "42")).thenReturn(hold("1"));
         when(catedraApiClient.confirmHold("hold-1", "42", "Al", "Li")).thenReturn(confirmation("1"));
 
-        assertThat(useCase.startReservation(REQUEST)).isPresent();
+        assertThat(useCase.startReservation(REQUEST)).isNotNull();
     }
 
     @Test
@@ -503,7 +504,7 @@ class StartReservationUseCaseImplTest {
                 .thenReturn(List.of(occupancy(LocalTime.of(9, 0), OccupancyStatus.CONFIRMED)));
         when(catedraApiClient.confirmHold("hold-2", "42", "Juan", "Perez")).thenReturn(confirmation("2"));
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(result.getHoldId()).isEqualTo("hold-2");
@@ -606,7 +607,7 @@ class StartReservationUseCaseImplTest {
                 .thenThrow(rejected(CatedraRejection.HOLD_EXPIRED));
         when(catedraApiClient.confirmHold("hold-2", "42", "Juan", "Perez")).thenReturn(confirmation("2"));
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(result.getHoldId()).isEqualTo("hold-2");
@@ -624,7 +625,7 @@ class StartReservationUseCaseImplTest {
                 .thenThrow(rejected(CatedraRejection.HOLD_NOT_FOUND));
         when(catedraApiClient.confirmHold("hold-2", "42", "Juan", "Perez")).thenReturn(confirmation("2"));
 
-        assertThat(useCase.startReservation(REQUEST).orElseThrow().getStatus())
+        assertThat(useCase.startReservation(REQUEST).getStatus())
                 .isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(statuses()).containsExactly(ReservationStatus.FAILED, ReservationStatus.WAITING_PHONE);
         assertThat(store.processes.get(0).getFailureReason()).isEqualTo("HOLD_NOT_FOUND");
@@ -678,7 +679,7 @@ class StartReservationUseCaseImplTest {
         when(catedraApiClient.confirmHold("hold-1", "42", "Juan", "Perez"))
                 .thenThrow(rejected(CatedraRejection.RESERVATION_PROCESS_ALREADY_CONFIRMED));
 
-        ReservationProcess result = useCase.startReservation(REQUEST).orElseThrow();
+        ReservationProcess result = useCase.startReservation(REQUEST);
 
         assertThat(result.getStatus()).isEqualTo(ReservationStatus.WAITING_PHONE);
         assertThat(result.getExpiresAt()).isEqualTo(HOLD_EXPIRES);

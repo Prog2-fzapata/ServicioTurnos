@@ -29,15 +29,15 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
     private final ApplyReservationTransitionUseCase applyReservationTransition;
     private final Clock clock;
 
-    // Un evento que no se puede aplicar (duplicado, tipo o proceso desconocidos, paso que el diagrama no permite) se
-    // registra igual: reentregarlo no lo va a arreglar y no debe trabar la lectura de los que siguen. Si la versión
-    // choca, la excepción deshace también el registro y quien llama repite el evento entero
+    // Transaccional porque debe procesarlo, guardar el ReservationProcess y el event procesado
     @Override
     @Transactional
     public EventResult processEvent(CatedraEvent event) {
+        // Si ya existe, ya se procesó, DUPLICATE
         if (processedEventRepository.existsById(event.eventId())) {
-            return EventResult.without(EventOutcome.DUPLICATE);
+            return EventResult.ignored(EventOutcome.DUPLICATE);
         }
+
         EventResult result = apply(event);
         processedEventRepository.save(ProcessedEvent.builder().eventId(event.eventId())
                 .eventType(event.eventType()).processedAt(clock.instant()).build());
@@ -46,17 +46,23 @@ public class ProcessCatedraEventUseCaseImpl implements ProcessCatedraEventUseCas
 
     private EventResult apply(CatedraEvent event) {
         Optional<ReservationTransition> transition = event.toTransition();
+
         if (transition.isEmpty()) {
-            return EventResult.without(EventOutcome.UNKNOWN_TYPE);
+            return EventResult.ignored(EventOutcome.UNKNOWN_TYPE);
         }
+
         Optional<ReservationProcess> process = reservationProcessRepository
                 .findByReservationProcessId(event.reservationProcessId());
+
         if (process.isEmpty()) {
-            return EventResult.without(EventOutcome.UNKNOWN_PROCESS);
+            return EventResult.ignored(EventOutcome.UNKNOWN_PROCESS);
         }
+
         Long processId = process.get().getId();
+
         TransitionResult result = applyReservationTransition.applyTransitionOnce(processId, transition.get())
                 .orElseThrow(() -> new ReservationProcessNotFoundException(processId));
+
         return EventResult.processed(result);
     }
 }

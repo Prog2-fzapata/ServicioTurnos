@@ -20,6 +20,7 @@ public class ListReservationsUseCaseImpl implements ListReservationsUseCase {
     @Override
     public PagedResult<ReservationProcess> listReservations(String userId, ReservationStatus status, PageQuery page) {
         // Sin estado pedido se ocultan los intentos descartados; pedir su estado los trae
-        return reservationProcessRepository.search(new ReservationFilter(userId, status, status == null), page);
+        ReservationFilter filter = new ReservationFilter(userId, status, status == null);
+        return reservationProcessRepository.search(filter, page);
     }
 }

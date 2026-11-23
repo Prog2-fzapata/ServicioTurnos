@@ -27,15 +27,16 @@ public class SseReservationChangePublisher implements ReservationChangePublisher
         String userId = process.getUserId();
         String eventId = mapper.toEventId(process);
         ReservationUpdate update = mapper.toUpdate(process);
+
+        // Sí hay una transacción abierta, como en processEvent, el aviso espera el commit
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            // Dentro de una transacción el cambio todavía no se ve desde afuera: si se avisara ahora la app podría
-            // consultar y no encontrarlo, o enterarse de algo que después se deshace
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     send(userId, eventId, update);
                 }
             });
+        // Si el guardado ya terminó, envía de una
         } else {
             send(userId, eventId, update);
         }

@@ -31,16 +31,23 @@ public class RecoverReservationsUseCaseImpl implements RecoverReservationsUseCas
     @Override
     public List<RecoveryResult> recover(Instant instanceStartedAt) {
         List<RecoveryResult> results = new ArrayList<>();
-        for (ReservationProcess process : reservationProcessRepository.findStaleHoldRequests(instanceStartedAt,
-                recoveryPolicy.batchSize())) {
+        // Buscamos los ReservationProcess que quedaron en HOLD_REQUESTED que se crearon antes del arranque
+        List<ReservationProcess> staleHoldRequests = reservationProcessRepository
+                .findStaleHoldRequests(instanceStartedAt, recoveryPolicy.batchSize());
+
+        for (ReservationProcess process : staleHoldRequests) {
+            // Pasamos a failed cada process, al no tener holdID, no podemos reconciliar
             results.add(new RecoveryResult(process.getId(), process.getStatus(), failOrphan(process)));
         }
         // Tras el primer fallo de la cátedra no se la vuelve a consultar
         boolean catedraFailed = false;
+        // Los PHONE_SENT pudieron haberse confirmado
         for (ReservationProcess process : reservationProcessRepository.findWithPhoneSent(recoveryPolicy.batchSize())) {
             RecoveryOutcome outcome;
+            // Si la cátedra falló, UNVERIFIED, no se consulta
             if (catedraFailed) {
                 outcome = RecoveryOutcome.UNVERIFIED;
+
             } else {
                 Answer answer = catedraReconciliation.askIfConfirmed(process);
                 catedraFailed = answer.verdict() == Verdict.CATEDRA_FAILED;
@@ -54,9 +61,10 @@ public class RecoverReservationsUseCaseImpl implements RecoverReservationsUseCas
     // El pedido del hold quedó sin resultado conocido (se cayó el servicio o se perdió la respuesta): nunca se
     // recibieron los ids, así que no se puede confirmar ni reconciliar. El hold que la cátedra haya creado vence solo
     private RecoveryOutcome failOrphan(ReservationProcess process) {
-        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
+        ReservationTransition transition = ReservationTransition.builder()
                 .target(ReservationStatus.FAILED).failureReason(StartReservationUseCaseImpl.HOLD_RESULT_UNKNOWN)
-                .build()), RecoveryOutcome.ORPHAN_FAILED);
+                .build();
+        return outcomeOf(catedraReconciliation.apply(process.getId(), transition), RecoveryOutcome.ORPHAN_FAILED);
     }
 
     private static RecoveryOutcome outcomeOf(Applied applied, RecoveryOutcome whenApplied) {

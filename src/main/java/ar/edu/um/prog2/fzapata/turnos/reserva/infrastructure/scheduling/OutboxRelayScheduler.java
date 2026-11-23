@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
+// MatchIfMissing, si no se definió, default true.
 @ConditionalOnProperty(name = "outbox.relay-enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class OutboxRelayScheduler implements SchedulingConfigurer {
@@ -27,11 +28,13 @@ public class OutboxRelayScheduler implements SchedulingConfigurer {
     private final PhoneDeliveryLogger phoneDeliveryLogger;
     private final OutboxProperties properties;
 
+    // Registrar es la lista de tareas pendientes
+    // ConfigureTasks es la función de la interfaz que ejecuta el planificador
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
-        // Espera fija entre el fin de una vuelta y el comienzo de la siguiente: dos vueltas nunca se solapan
-        registrar.addFixedDelayTask(new FixedDelayTask(this::relay, properties.relayInterval(),
-                properties.relayInterval()));
+        // Runnable, interval e initial delay
+        FixedDelayTask task = new FixedDelayTask(this::relay, properties.relayInterval(), properties.relayInterval());
+        registrar.addFixedDelayTask(task);
     }
 
     // Un fallo (la base o Kafka caídos) no debe tumbar el servicio ni cortar las vueltas siguientes: se registra y se

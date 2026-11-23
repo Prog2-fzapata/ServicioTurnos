@@ -60,17 +60,22 @@ class CatedraReconciliation {
     Answer askIfConfirmed(ReservationProcess process) {
         try {
             LocalDate day = process.getAppointmentDate();
+            // Buscamos el listado de turnos confirmados para el día solicitado
             AppointmentPage page = catedraApiClient.findAppointments(
-                    new AppointmentQuery(process.getUserId(), AppointmentStatus.CONFIRMED, day, day), 0,
-                    CONFIRMED_PAGE_SIZE);
+                    new AppointmentQuery(process.getUserId(), AppointmentStatus.CONFIRMED, day, day),
+                    0, CONFIRMED_PAGE_SIZE);
+            // Filtra si coincide por ID
             Optional<CatedraAppointment> match = page.content().stream()
                     .filter(appointment -> process.getReservationProcessId() != null
                             && process.getReservationProcessId().equals(appointment.getReservationProcessId()))
                     .findFirst();
+            // Si no es null, lo encontró y responde CONFIRMED
             if (match.isPresent()) {
                 return new Answer(Verdict.CONFIRMED, match.get());
             }
+            // Si todos los elementos entraron en el batch -> true
             boolean complete = page.totalElements() <= page.content().size();
+            // Si true, no se confirmó. Si false, quedaron turnos por revisar, INCOMPLETE
             return Answer.of(complete ? Verdict.NOT_CONFIRMED : Verdict.INCOMPLETE);
         } catch (CatedraUnavailableException | CatedraResponseException | CatedraAuthenticationException
                 | CatedraRejectedException e) {
@@ -82,12 +87,15 @@ class CatedraReconciliation {
         return ReservationTransition.builder().target(ReservationStatus.CONFIRMED)
                 .reservationId(appointment.getReservationId()).build();
     }
-
+    // Aplica la transición
     Applied apply(Long processId, ReservationTransition transition) {
         try {
             boolean applied = applyReservationTransition.applyTransition(processId, transition)
+                    // Deja pasar el valor si APPLIED si no, Optional vacío. Finalmente, isPresent -> boolean
                     .filter(result -> result.outcome() == TransitionOutcome.APPLIED).isPresent();
+            // true -> APPLIED , false -> UNCHANGED
             return applied ? Applied.APPLIED : Applied.UNCHANGED;
+
         } catch (ReservationConflictException e) {
             return Applied.CONFLICT;
         }

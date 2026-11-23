@@ -1,0 +1,30 @@
+# 011. Iniciar una reserva sin dejar rastro hasta crear el proceso
+
+**Estado:** aceptada
+
+## Contexto
+
+iniciar una reserva junta el catálogo (profesional, agenda, nombre del paciente), el proceso local y las dos operaciones de la cátedra (crear el hold y confirmarlo). La cátedra no tiene idempotencia en el hold y un timeout no prueba que la operación haya fallado.
+
+## Decisión
+
+- **Orden.** Primero lo que no deja rastro: el profesional (404; deshabilitado o de categoría deshabilitada, 400), que el horario sea un slot de su agenda habilitada y no haya pasado (`400 INVALID_SLOT`) y el nombre y apellido de la cuenta, con al menos 2 caracteres (`400 PATIENT_NAME_REQUIRED`). Recién entonces se crea el proceso en `HOLD_REQUESTED`, con el `uid` del JWT como dueño y como `externalPatientId`; el usuario nunca sale del cuerpo. La regla de qué profesional se puede reservar y la generación de slots son las mismas que usa la disponibilidad.
+- **Sin transacción abierta mientras se llama a la cátedra.** Cada cambio de estado es el de la máquina de estados ([decisión 010](010-maquina-de-estados.md)): `HELD` con los ids y el vencimiento del hold, y `WAITING_PHONE` con el de la confirmación.
+- **Un intento es «hold + confirmación» sobre un proceso propio**, y se repite hasta `RESERVATION_HOLD_MAX_ATTEMPTS` intentos en total (2 por defecto, mínimo 1, el entorno gana). Se repite si se perdió la respuesta del hold y el horario figura libre, o si la cátedra dice `HOLD_EXPIRED` o `HOLD_NOT_FOUND` al confirmar.
+- **Respuesta del hold perdida.** El intento queda `FAILED` (`HOLD_RESULT_UNKNOWN`) y ese POST no se repite. Se consultan las ocupaciones del día: si el horario figura `HELD` o `CONFIRMED` se responde `409 SLOT_UNAVAILABLE` sin asumir que el hold es nuestro; si figura libre, se pide otro hold en un proceso nuevo. Agotados los intentos, `503`.
+- **Hold vencido al confirmar.** La cátedra confirma que el hold ya no existe, así que nada quedó bloqueado y no hace falta mirar las ocupaciones: el intento se cierra (`EXPIRED` o `FAILED`) y se pide otro hold. Si el horario lo tomaron en el medio, la cátedra responde `409` y se informa `SLOT_UNAVAILABLE`. Agotados los intentos, `409 RESERVATION_EXPIRED`.
+- **Confirmación perdida.** El proceso queda en `HELD`, con sus ids, y se responde `503`: el hold existe y la cátedra pudo haberlo confirmado. `HELD` no es final, de modo que el vencimiento o la reconciliación con la lista de reservas de la cátedra pueden resolverlo. Repetir la confirmación y recibir `RESERVATION_PROCESS_ALREADY_CONFIRMED` es la misma reserva y sigue a `WAITING_PHONE`.
+- **Rechazos.** Un `SLOT_ALREADY_HELD` o `SLOT_ALREADY_RESERVED` es `409 SLOT_UNAVAILABLE` y nunca se toma como «es mi hold»; profesional deshabilitado o inexistente y slot inválido según la cátedra se traducen a sus códigos; si la cátedra no se alcanzó, `503` sin investigar ningún hold. Cualquier otro rechazo o error inesperado deja el intento `FAILED` y sale como `500` genérico. Si no se puede registrar el cierre, el error original no se tapa.
+
+## Alternativas descartadas
+
+- No consultar ocupaciones y responder `503` ante un hold perdido: más simple, pero el reintento del usuario recibiría `409` por el hold huérfano hasta unos 10 minutos.
+- Pasar a `FAILED` una confirmación perdida: es un estado final e inmutable y perdería una reserva que la cátedra sí confirmó.
+- Responder `409` ante un hold vencido en lugar de reintentar: el hold ya no existe y repetir es seguro.
+- Reutilizar el mismo proceso para el segundo intento: el diagrama no permite volver a `HOLD_REQUESTED` y el `reservationProcessId` de la cátedra es único.
+- Consultar siempre las ocupaciones antes del hold: una llamada y un motivo de `503` más sin cambiar el resultado, porque la cátedra ya responde `409`.
+- Impedir localmente el doble clic sobre el mismo horario: la cátedra ya responde `409` y se informa como horario no disponible.
+
+## Consecuencias
+
+cada intento descartado deja una fila final (`EXPIRED` o `FAILED`) en `reservation_processes`; la lista de «mis reservas» las oculta por defecto ([decisión 012](012-consulta-y-cancelacion.md)). En el peor caso, un pedido con la cátedra caída tarda lo que suman el hold, la consulta de ocupaciones y el segundo hold, hasta unos 30 segundos con los valores por defecto. Si el cambio a `HELD` falla después de crear el hold, el proceso queda en `HOLD_REQUESTED` sin ids y el hold huérfano vence solo; la recuperación al arrancar ([decisión 017](017-recuperacion-al-arrancar.md)) lo pasa a `FAILED`. Los tests cubren el caso de uso sobre una base en memoria con la máquina de estados real, el contrato HTTP y el flujo completo con PostgreSQL y servidores simulados de catálogo y cátedra, y se verificó rompiendo el código a propósito en 28 puntos.

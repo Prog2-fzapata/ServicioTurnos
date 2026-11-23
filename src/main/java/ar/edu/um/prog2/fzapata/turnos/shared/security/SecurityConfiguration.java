@@ -19,7 +19,7 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ProblemDetailsSecurityHandler problemHandler) {
         // Sin sesión ni cookies: cada pedido trae su JWT, así que CSRF no aplica
-        http.csrf(AbstractHttpConfigurer::disable) // NOSONAR: API sin sesión ni cookies, ver docs/decisiones.md
+        http.csrf(AbstractHttpConfigurer::disable) // NOSONAR: API sin sesión ni cookies, ver la decisión 005
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
                 // Turnos no tiene endpoints públicos: solo el estado del servicio y la documentación
@@ -32,6 +32,7 @@ public class SecurityConfiguration {
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler))
+
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler)
