@@ -37,8 +37,8 @@ stateDiagram-v2
 
 ## Reglas
 
-- **Vencimiento:** además del evento `AppointmentProcessExpired`, una tarea expira los procesos abiertos con `expiresAt` vencido hace más que un margen (60 s), con el motivo `HOLD_EXPIRED`. Antes de expirar uno en `PHONE_QUEUED` o `PHONE_SUBMITTED` le pregunta a la cátedra si ya lo tiene confirmado y, si es así, lo repara a `CONFIRMED`; ante la duda no expira (D91).
-- **Recuperación al arrancar:** una vez, al terminar de levantar el servicio, los `HOLD_REQUESTED` sin ids creados antes de que arrancara la instancia pasan a `FAILED` (`HOLD_RESULT_UNKNOWN`) y los `PHONE_QUEUED` y `PHONE_SUBMITTED` que la cátedra tiene confirmados se reparan a `CONFIRMED`; lo demás no se toca (D92).
+- **Vencimiento:** además del evento `AppointmentProcessExpired`, una tarea expira los procesos abiertos con `expiresAt` vencido hace más que un margen (60 s), con el motivo `HOLD_EXPIRED`. Antes de expirar uno en `PHONE_QUEUED` o `PHONE_SUBMITTED` le pregunta a la cátedra si ya lo tiene confirmado y, si es así, lo repara a `CONFIRMED`; ante la duda no expira.
+- **Recuperación al arrancar:** una vez, al terminar de levantar el servicio, los `HOLD_REQUESTED` sin ids creados antes de que arrancara la instancia pasan a `FAILED` (`HOLD_RESULT_UNKNOWN`) y los `PHONE_QUEUED` y `PHONE_SUBMITTED` que la cátedra tiene confirmados se reparan a `CONFIRMED`; lo demás no se toca.
 - **Estados finales:** `EXPIRED`, `FAILED` y `CANCELLED`. Son inmutables: ni un evento tardío ni uno duplicado los reabre. `CONFIRMED` solo puede pasar a `CANCELLED`.
 - **Un solo lugar cambia el estado.** Todo paso pasa por un único caso de uso (`ApplyReservationTransitionUseCase`), que responde:
   - `APPLIED`: el estado cambió.
@@ -50,4 +50,4 @@ stateDiagram-v2
 - **Respuesta perdida del hold:** la cátedra no tiene idempotencia ni permite recuperar los ids de un hold. Un proceso en `HOLD_REQUESTED` sin respuesta pasa a `FAILED`; antes de crear otro hold se consultan las ocupaciones del profesional, y si el horario aparece `HELD` se espera su `expiresAt` sin asumir que el hold es nuestro. Un `409` nunca se toma como «es mi hold».
 - Cada proceso guarda el usuario dueño, el `reservationProcessId` y el `holdId` de la cátedra, el `requestEventId`, `expiresAt`, los datos del horario y los datos descriptivos del profesional al momento de reservar.
 
-Las decisiones y las alternativas descartadas están en [decisiones.md](decisiones.md), entrada 10.
+Las decisiones y las alternativas descartadas están en [decisiones/010-maquina-de-estados.md](decisiones/010-maquina-de-estados.md).
