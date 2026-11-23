@@ -23,6 +23,7 @@ Completar la clave de la base y el secreto del JWT en `.env` (el mismo valor que
 
 | Variable | Descripción | Por defecto |
 | --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | Entorno de ejecución: `dev` o `prod`. Con `prod` se desactiva la documentación interactiva de la API (Swagger UI y `/v3/api-docs`) | `dev` |
 | `TURNOS_DB_NAME` | Nombre de la base de datos | `turnos_db` |
 | `TURNOS_DB_USER` | Usuario de la base | `turnos_user` |
 | `TURNOS_DB_PASSWORD` | Clave del usuario | |
@@ -105,7 +106,7 @@ CATALOGO_BASE_URL=http://localhost:8081 ./mvnw spring-boot:run
 
 ## Seguridad
 
-Turnos no emite tokens: valida el JWT que emite catálogo (`POST /api/authenticate`) con el mismo secreto. Todo exige `Authorization: Bearer <jwt>`, salvo `/actuator/health` y la documentación. Un token ausente, mal firmado, vencido o sin `exp`, `uid` o `auth` recibe `401` (un token sin `exp` no vencería nunca, así que no se acepta); la falta de rol recibe `403`; ambos en `application/problem+json`. En Swagger UI el botón «Authorize» recibe el token. El `uid` del usuario sale siempre del token.
+Turnos no emite tokens: valida el JWT que emite catálogo (`POST /api/authenticate`) con el mismo secreto. Todo exige `Authorization: Bearer <jwt>`, salvo `/actuator/health` y la documentación. Un token ausente, mal firmado, vencido o sin `exp`, `uid` o `auth` recibe `401` (un token sin `exp` no vencería nunca, así que no se acepta); la falta de rol recibe `403`; ambos en `application/problem+json`. En Swagger UI (`/swagger-ui.html`, con el documento OpenAPI en `/v3/api-docs`) el botón «Authorize» recibe el token; con `SPRING_PROFILES_ACTIVE=prod` ambos quedan desactivados. El `uid` del usuario sale siempre del token.
 
 ## Cliente de catálogo
 

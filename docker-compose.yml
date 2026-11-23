@@ -20,6 +20,7 @@ services:
     build: .
     restart: unless-stopped
     environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       POSTGRES_HOST: postgres
       TURNOS_DB_NAME: ${TURNOS_DB_NAME}
       TURNOS_DB_USER: ${TURNOS_DB_USER}
