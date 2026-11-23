@@ -29,3 +29,4 @@ Estados posibles: `aceptada`, `reemplazada por NNN` y `obsoleta`.
 | 021 | [Ajustar la reconciliación y los errores tras la prueba real contra la cátedra](021-ajustes-de-la-prueba-real.md) | aceptada, en parte reemplazada por 023 |
 | 022 | [Escribir los logs en JSON, con los datos como campos](022-logs-en-json-con-campos.md) | aceptada |
 | 023 | [Filtrar la reconciliación por la fecha del turno](023-reconciliacion-por-fecha.md) | aceptada |
+| 024 | [Apagar la documentación de la API en el perfil prod](024-api-docs-apagable-por-perfil.md) | aceptada |

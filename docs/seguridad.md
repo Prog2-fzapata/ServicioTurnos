@@ -68,6 +68,7 @@ Turnos le pide a catálogo la agenda de un profesional y el nombre del paciente 
 
 - **CSRF desactivado:** CSRF protege a las aplicaciones que identifican al usuario con una cookie de sesión. Esta API no usa sesión ni cookies: cada pedido trae su JWT en `Authorization`, que un sitio ajeno no puede agregar. SonarCloud marca la línea como vulnerabilidad crítica sin mirar el resto de la configuración, por eso lleva un `NOSONAR` con el motivo ([decisión 005](decisiones/005-respuestas-401-y-403.md)).
 - **CORS queda fuera:** lo aplican los navegadores y el único cliente es la aplicación Android, así que no hay ningún origen que permitir.
+- **Documentación de la API:** `/swagger-ui` y `/v3/api-docs` responden sin token y están activos por defecto, porque forman parte de lo que se entrega. El perfil `prod` (`SPRING_PROFILES_ACTIVE=prod`) los desactiva para no revelar la superficie de la API en un despliegue real ([decisión 024](decisiones/024-api-docs-apagable-por-perfil.md)); un despliegue real tiene que declararlo.
 - **`actuator`:** solo se expone `/actuator/health`, y no depende de catálogo ni de la cátedra.
 - **Contenedores:** la imagen final solo trae el JRE y el JAR, corre con un usuario sin privilegios y los puertos se publican solo en `127.0.0.1`.
 - **Mensajes de Kafka:** el teléfono que se publica lleva solo lo que exige la cátedra; el JWT nunca viaja en un mensaje.
@@ -76,7 +77,6 @@ Turnos le pide a catálogo la agenda de un profesional y el nombre del paciente 
 
 - **Un token no se puede revocar** antes de que venza: no hay una lista de tokens. Quien conozca `JWT_SECRET` puede fabricar tokens, así que el secreto debe cuidarse igual en los dos servicios.
 - **Un stream puede seguir abierto unos segundos de más.** El servidor cierra una conexión en el primer latido posterior al vencimiento del token (cada 25 segundos por defecto) y el decodificador tolera 60 segundos de desfase de reloj, así que reconectar con un token vencido hace menos que eso se acepta y se cierra de nuevo en el siguiente latido. La app tiene que renovar el token antes de reconectar.
-- **La documentación de la API es pública y no se apaga por perfil.** `/swagger-ui` y `/v3/api-docs` responden sin token en cualquier entorno, a diferencia de catálogo, que los desactiva en producción: un despliegue real debería quitarlos o protegerlos.
 - **No hay límite de pedidos por usuario.** Nada frena a quien inicia muchas reservas seguidas más allá de lo que haga la cátedra con los bloqueos.
 - **El teléfono del paciente se guarda en claro** en la base de datos, sin cifrado de columna.
 - **Una sola instancia.** El registro de conexiones del stream vive en memoria y el relay del outbox no está pensado para varias instancias.

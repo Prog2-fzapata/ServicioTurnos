@@ -1,6 +1,6 @@
 # Contrato del servicio de turnos
 
-Lo consume la **aplicación Android**. Con el servicio en ejecución, `/swagger-ui.html` es la interfaz interactiva para probar los endpoints y `/v3/api-docs` es el documento OpenAPI en JSON del que sale; ambos se generan a partir del código. Este documento explica el contrato en lenguaje llano, incluye la máquina de estados que ve la aplicación y describe lo que turnos [consume de catálogo](#lo-que-turnos-consume-de-catálogo).
+Lo consume la **aplicación Android**. Con el servicio en ejecución, `/swagger-ui.html` es la interfaz interactiva para probar los endpoints y `/v3/api-docs` es el documento OpenAPI en JSON del que sale; ambos se generan a partir del código y con el perfil `prod` están desactivados ([decisión 024](decisiones/024-api-docs-apagable-por-perfil.md)). Este documento explica el contrato en lenguaje llano, incluye la máquina de estados que ve la aplicación y describe lo que turnos [consume de catálogo](#lo-que-turnos-consume-de-catálogo).
 
 ## Convenciones
 
