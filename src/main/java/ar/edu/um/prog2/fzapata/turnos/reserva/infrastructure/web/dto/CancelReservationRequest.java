@@ -14,7 +14,7 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CancelReservationRequest {
-
+    // Optional
     @Size(max = 500, message = "reason no puede tener más de 500 caracteres")
     private String reason;
 }

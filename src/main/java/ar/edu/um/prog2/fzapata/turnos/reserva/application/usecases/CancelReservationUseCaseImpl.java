@@ -40,6 +40,7 @@ public class CancelReservationUseCaseImpl implements CancelReservationUseCase {
         if (process.getStatus() == ReservationStatus.CANCELLED) {
             return found;
         }
+        // Solo se pueden cancelar las CONFIRMED
         if (process.getStatus() != ReservationStatus.CONFIRMED) {
             throw new ReservationNotCancellableException(id, process.getStatus());
         }

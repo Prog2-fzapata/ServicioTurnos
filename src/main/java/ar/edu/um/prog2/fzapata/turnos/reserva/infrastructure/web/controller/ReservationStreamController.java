@@ -25,8 +25,10 @@ public class ReservationStreamController {
     @Operation(summary = "Abre un stream de eventos (SSE) con los cambios de las reservas del usuario: un "
             + "reservation-updated por cambio y un comentario ': ping' de latido. No es la fuente de verdad: al "
             + "conectar o reconectar la app consulta GET /api/reservations. Cierra el stream cuando vence el JWT")
+    // text/event-stream: no es un JSON, sino un flujo de eventos que seguirá abierto
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
+    public SseEmitter stream(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
         return registry.register(jwt.getClaimAsString(JwtClaims.USER_ID), jwt.getExpiresAt());
     }
 }

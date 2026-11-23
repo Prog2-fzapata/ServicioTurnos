@@ -17,7 +17,6 @@ import org.springframework.web.client.RestClientException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraResponseException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentPage;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentQuery;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Cancellation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Hold;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldConfirmation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Occupancy;
@@ -116,7 +115,7 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
     }
 
     @Override
-    public Cancellation cancelAppointment(String reservationProcessId, String reason) {
+    public void cancelAppointment(String reservationProcessId, String reason) {
         CancelResponse response = execute(catedraRetryTemplate, () -> {
             RestClient.RequestBodySpec request = catedraRestClient.post()
                     .uri("/api/appointments/{reservationProcessId}/cancel", reservationProcessId);
@@ -126,10 +125,8 @@ public class CatedraApiClientAdapter implements CatedraApiClient {
             }
             return request.retrieve().body(CancelResponse.class);
         });
-        Cancellation cancellation = catedraMapper.toDomainModel(required(response));
         log.atInfo().setMessage("La cátedra canceló la reserva")
-                .addKeyValue("reservationProcessId", cancellation.getReservationProcessId()).log();
-        return cancellation;
+                .addKeyValue("reservationProcessId", required(response).getReservationProcessId()).log();
     }
 
     // Le pide al template que ejecute attempt(request) según su política

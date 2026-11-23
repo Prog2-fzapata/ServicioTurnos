@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
@@ -14,10 +13,10 @@ import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraRejec
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.CatedraUnavailableException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.InvalidSlotException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.PatientNameRequiredException;
+import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ProfessionalNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationExpiredException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.ReservationProcessNotFoundException;
 import ar.edu.um.prog2.fzapata.turnos.reserva.application.exception.SlotUnavailableException;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AgendaSlots;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogAccount;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatalogProfessional;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraRejection;
@@ -73,29 +72,26 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     }
 
     @Override
-    public Optional<ReservationProcess> startReservation(ReservationRequest request) {
+    public ReservationProcess startReservation(ReservationRequest request) {
         // Por Http no llega null, por si otro adaptador lo llama y no lo verifica
         Objects.requireNonNull(request, "La solicitud de reserva es obligatoria");
-        Optional<CatalogProfessional> found = catalogClient.findProfessional(request.professionalId());
-        if (found.isEmpty()) {
-            return Optional.empty(); // ProfessionalNotFoundException en Service
-        }
-        // Extraemos el professional del optional
-        CatalogProfessional professional = found.get();
-        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría esten enabled
+        CatalogProfessional professional = catalogClient.findProfessional(request.professionalId())
+                .orElseThrow(() -> new ProfessionalNotFoundException(request.professionalId()));
+        professionalGuard.requireEnabled(professional); // Verifica que el profesional y su categoría enabled
 
         // Consulta la agenda del día de la request y devuelve slot si está disponible
-        Slot slot = requireSlot(professional, request);
+        Slot slot = getSlot(professional, request);
         // Antes de crear nada: si falta el nombre, PatientNameRequiredException, no bloquea nada
-        Patient patient = requirePatient(catalogClient.findAccount());
-        // Iteramos hasta maxAttempts
+        Patient patient = toPatient(catalogClient.findAccount());
+        // Intentamos hasta maxAttempts
         for (int number = 1;; number++) {
             // Armamos el ReservationProcess y lo guardamos con el repository
-            ReservationProcess created = reservationProcessRepository.save(newProcess(request, professional, slot, patient));
+            ReservationProcess process = reservationProcessRepository
+                    .save(newProcess(request, professional, slot, patient));
             // Intenta crear el hold
-            switch (attempt(created, request, patient)) {
+            switch (attempt(process, request, patient)) {
                 case Attempt.Reserved reserved -> {
-                    return Optional.of(reserved.process());
+                    return reserved.process();
                 }
                 case Attempt.Lost lost -> {
                     if (number >= holdRetryPolicy.maxAttempts()) {
@@ -106,25 +102,22 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
         }
     }
 
-    // Genera la agenda para ese día del profesional y toma el primer slot, el que coincide con la hora seleccionada
-    private Slot requireSlot(CatalogProfessional professional, ReservationRequest request) {
+    // Busca en la agenda del profesional el slot que empieza a la hora seleccionada; si no hay, InvalidSlotException
+    private Slot getSlot(CatalogProfessional professional, ReservationRequest request) {
+        // Convertimos a LocalDateTime la fecha y hora de la request
         LocalDateTime start = LocalDateTime.of(request.date(), request.startTime());
 
         if (start.isBefore(LocalDateTime.now(clock))) {
             throw new InvalidSlotException("El horario ya pasó");
         }
 
-        Slot slot = AgendaSlots.generate(professional, request.date(), request.date()).get(start);
-
-        if (slot == null) {
-            throw new InvalidSlotException("El horario no está en la agenda del profesional " + professional.getId());
-        }
-        return slot;
+        return professional.slotAt(start).orElseThrow(() -> new InvalidSlotException(
+                "El horario no está en la agenda del profesional " + professional.getId()));
     }
 
     // Verifica que el usuario tenga name y lastName cargados y retorna Patient, si no, PatientNameRequiredException
     // Son campos opcionales en el registro pero necesarios para reservar
-    private Patient requirePatient(CatalogAccount account) {
+    private Patient toPatient(CatalogAccount account) {
         String firstName = account.getFirstName() == null ? "" : account.getFirstName().strip();
         String lastName = account.getLastName() == null ? "" : account.getLastName().strip();
         if (firstName.length() < MIN_NAME_LENGTH || lastName.length() < MIN_NAME_LENGTH) {
@@ -153,14 +146,15 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     }
 
     // Un intento: el hold y su confirmación sobre un proceso nuevo
-    private Attempt attempt(ReservationProcess created, ReservationRequest request, Patient patient) {
-        Long processId = created.getId();
+    private Attempt attempt(ReservationProcess process, ReservationRequest request, Patient patient) {
+        Long processId = process.getId();
         Hold hold;
         try {
             hold = catedraApiClient.createHold(request.professionalId(), request.date(), request.startTime(),
                     request.userId());
         // Atrapamos las excepciones y hacemos el cierre del intento del ReservationProcess registrando el error
         } catch (CatedraRejectedException e) {
+            // Cada caso de uso decide qué hacer con cada Rejection
             RuntimeException failure = HoldRejectionTranslator.translate(e.getRejection(), request.professionalId());
             close(processId, ReservationStatus.FAILED, e.getRejection().name(), failure);
             throw failure;
@@ -170,7 +164,7 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
             throw e;
         } catch (CatedraUnavailableException e) {
             close(processId, ReservationStatus.FAILED, HOLD_RESULT_UNKNOWN, e);
-            return afterLostHold(request, e);
+            return afterLostHold(request, e); // Si la cátedra no está disponible es la única reintentable
         } catch (RuntimeException e) {
             close(processId, ReservationStatus.FAILED, UNEXPECTED_ERROR, e);
             throw e;
@@ -191,11 +185,13 @@ public class StartReservationUseCaseImpl implements StartReservationUseCase {
     // D80: sin forma de recuperar el hold perdido, se mira qué figura ocupado. Si el horario aparece ocupado (HELD o
     // CONFIRMED) no se asume que el hold es nuestro; si está libre se puede pedir otro
     private Attempt afterLostHold(ReservationRequest request, CatedraUnavailableException lost) {
+        // Consulta si ya se ocupó el horario
         boolean occupied = catedraApiClient.findOccupancies(request.professionalId(), request.date(), request.date())
                 .stream().anyMatch(occupancy -> occupancy.getStartTime().equals(request.startTime()));
         if (occupied) {
             throw new SlotUnavailableException();
         }
+        // Si no se ocupó, descarta el intento. Para poder reintentar.
         return new Attempt.Lost(lost);
     }
 

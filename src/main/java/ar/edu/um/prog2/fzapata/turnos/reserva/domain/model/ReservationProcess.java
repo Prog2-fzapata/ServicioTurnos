@@ -34,7 +34,7 @@ public class ReservationProcess {
     private String patientFirstName;
     private String patientLastName;
     private String patientPhone;
-    private String requestEventId;
+    private String requestEventId; // Cátedra
     private Long reservationId;
     private String failureReason;
     private String cancellationReason;

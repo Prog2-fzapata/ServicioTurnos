@@ -6,7 +6,6 @@ import java.util.List;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentPage;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.AppointmentQuery;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Cancellation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Hold;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldConfirmation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Occupancy;
@@ -31,5 +30,5 @@ public interface CatedraApiClient {
     AppointmentPage findAppointments(AppointmentQuery query, int page, int size);
 
     // reason es opcional (hasta 500 caracteres). Idempotente: cancelar una reserva ya cancelada devuelve su estado
-    Cancellation cancelAppointment(String reservationProcessId, String reason);
+    void cancelAppointment(String reservationProcessId, String reason);
 }

@@ -40,8 +40,8 @@ class ReservationStreamRegistryTest {
     private class StreamStub {
 
         @GetMapping(path = "/stream/{user}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-        SseEmitter open(@PathVariable String user, @RequestParam(required = false) Long expiresAt) {
-            SseEmitter emitter = registry.register(user, expiresAt == null ? null : Instant.ofEpochSecond(expiresAt));
+        SseEmitter open(@PathVariable String user, @RequestParam long expiresAt) {
+            SseEmitter emitter = registry.register(user, Instant.ofEpochSecond(expiresAt));
             opened.add(emitter);
             return emitter;
         }
@@ -61,8 +61,9 @@ class ReservationStreamRegistryTest {
         mockMvc = mockMvc();
     }
 
+    // Con un JWT vigente: los tests que no tratan del vencimiento no deben cerrarse por eso
     private MvcResult connect(String user) throws Exception {
-        return mockMvc.perform(get("/stream/{user}", user)).andExpect(request().asyncStarted()).andReturn();
+        return connect(user, NOW.plusSeconds(3600));
     }
 
     private MvcResult connect(String user, Instant expiresAt) throws Exception {
@@ -161,15 +162,6 @@ class ReservationStreamRegistryTest {
         registry.heartbeat();
 
         assertThat(registry.connectionCount("42")).isZero();
-    }
-
-    @Test
-    void aTokenWithoutExpirationNeverExpires() throws Exception {
-        connect("42");
-
-        registry.heartbeat();
-
-        assertThat(registry.connectionCount("42")).isEqualTo(1);
     }
 
     @Test

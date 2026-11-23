@@ -50,7 +50,9 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
             return found;
         }
         Instant now = clock.instant();
+        // Verifica que el contexto sea apropiado para el submit
         requireSubmittable(found.get(), now);
+
         TransitionResult result = applyReservationTransition.applyTransitionOnce(id, ReservationTransition.builder()
                 .target(ReservationStatus.PHONE_QUEUED).patientPhone(PhoneNumber.normalize(phoneNumber)).build())
                 .orElseThrow(() -> new ReservationProcessNotFoundException(id));
@@ -61,24 +63,37 @@ public class SubmitPhoneUseCaseImpl implements SubmitPhoneUseCase {
         outboxRepository.save(newOutboxEvent(result.process(), now));
         return Optional.of(result.process());
     }
-
-    private ReservationProcess requireSubmittable(ReservationProcess process, Instant now) {
+    // Verifica que status = WAITING_PHONE + requestEventId no sea null y que no haya expirado
+    private void requireSubmittable(ReservationProcess process, Instant now) {
         if (!PhoneSubmissionRules.canSubmit(process)) {
             throw new InvalidReservationStateException(process.getId(), process.getStatus());
         }
         if (process.getExpiresAt() != null && !now.isBefore(process.getExpiresAt())) {
             throw new PhoneWindowExpiredException(process.getId());
         }
-        return process;
     }
 
     private OutboxEvent newOutboxEvent(ReservationProcess queued, Instant now) {
+        // eventId tiene un prefijo + 36 dígitos hexadecimales random 8-4-4-4-12
         String eventId = "phone-submitted-" + UUID.randomUUID();
-        String payload = phoneMessageSerializer.toPayload(new PhoneSubmission(eventId,
-                queued.getReservationProcessId(), queued.getHoldId(), queued.getRequestEventId(),
-                queued.getPatientPhone(), now));
-        return OutboxEvent.builder().eventId(eventId).reservationProcessId(queued.getReservationProcessId())
-                .topic(phoneMessageSettings.topic()).messageKey(queued.getReservationProcessId()).payload(payload)
-                .status(OutboxStatus.PENDING).createdAt(now).build();
+
+        PhoneSubmission submission = new PhoneSubmission(
+                eventId,
+                queued.getReservationProcessId(),
+                queued.getHoldId(),
+                queued.getRequestEventId(),
+                queued.getPatientPhone(),
+                now);
+
+        String payload = phoneMessageSerializer.toPayload(submission);
+
+        return OutboxEvent.builder()
+                .eventId(eventId)
+                .reservationProcessId(queued.getReservationProcessId())
+                .topic(phoneMessageSettings.topic())
+                .messageKey(queued.getReservationProcessId())
+                .payload(payload) // Jackson se encarga de darle el formato
+                .status(OutboxStatus.PENDING)
+                .createdAt(now).build();
     }
 }

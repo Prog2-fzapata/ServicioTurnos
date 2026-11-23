@@ -33,46 +33,62 @@ public class ExpireOverdueReservationsUseCaseImpl implements ExpireOverdueReserv
 
     @Override
     public List<ExpirationResult> expireOverdue() {
+
         List<ReservationProcess> overdue = reservationProcessRepository
                 .findExpirable(clock.instant().minus(expirationPolicy.grace()), expirationPolicy.batchSize());
+
+        // Creamos el arraylist con el tamaño que tendrá para evitar agrandar y copiar
         List<ExpirationResult> results = new ArrayList<>(overdue.size());
+
         // Tras el primer fallo de la cátedra no se la vuelve a consultar en esta vuelta; los procesos que no
         // necesitan consulta se expiran igual
         boolean catedraFailed = false;
+
         for (ReservationProcess process : overdue) {
-            ExpirationOutcome outcome;
+            ExpirationOutcome outcome; // declaración sin valor
+            // Si el estado no está esperando respuesta por el teléfono, expira
             if (!process.getStatus().phoneMayHaveReachedCatedra()) {
                 outcome = expire(process);
+
+            // Si está esperando por el teléfono y falló una vez la cátedra, UNVERIFIED
             } else if (catedraFailed) {
                 outcome = ExpirationOutcome.UNVERIFIED;
+            // Pregunta a la cátedra por si se ha perdido la respuesta
             } else {
                 Answer answer = catedraReconciliation.askIfConfirmed(process);
+                // Sí falló, catedraFailed -> true
                 catedraFailed = answer.verdict() == CatedraReconciliation.Verdict.CATEDRA_FAILED;
+                // Sí se perdió la confirmación, lo repara. Si falló, UNVERIFIED, si no, expira.
                 outcome = expireOrRepair(process, answer);
             }
+            // Siempre añade el resultado a la lista
             results.add(new ExpirationResult(process.getId(), process.getStatus(), outcome));
         }
         return results;
     }
 
     private ExpirationOutcome expire(ReservationProcess process) {
-        return outcomeOf(catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
-                .target(ReservationStatus.EXPIRED).failureReason(EXPIRATION_REASON).build()),
-                ExpirationOutcome.EXPIRED);
+        // Aplica la expiración
+        Applied applied = catedraReconciliation.apply(process.getId(), ReservationTransition.builder()
+                .target(ReservationStatus.EXPIRED).failureReason(EXPIRATION_REASON).build());
+        // Traduce el resultado a ExpirationOutcome
+        return outcomeOf(applied, ExpirationOutcome.EXPIRED);
     }
 
     private static ExpirationOutcome outcomeOf(Applied applied, ExpirationOutcome whenApplied) {
         return switch (applied) {
-            case APPLIED -> whenApplied;
+            case APPLIED -> whenApplied; // Aplicó el resultado esperado
             case UNCHANGED -> ExpirationOutcome.UNCHANGED;
             case CONFLICT -> ExpirationOutcome.CONFLICT;
         };
     }
-
+    // Expira o repara el estado
     private ExpirationOutcome expireOrRepair(ReservationProcess process, Answer answer) {
         return switch (answer.verdict()) {
+            // La cátedra confirmó el turno->
             case CONFIRMED -> outcomeOf(catedraReconciliation.apply(process.getId(),
                     catedraReconciliation.confirmedBy(answer.appointment())), ExpirationOutcome.CONFIRMED_BY_CATEDRA);
+            // No confirmó -> expire
             case NOT_CONFIRMED -> expire(process);
             case INCOMPLETE, CATEDRA_FAILED -> ExpirationOutcome.UNVERIFIED;
         };

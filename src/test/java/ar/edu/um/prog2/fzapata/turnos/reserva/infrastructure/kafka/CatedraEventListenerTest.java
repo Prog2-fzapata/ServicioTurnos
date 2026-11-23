@@ -48,7 +48,7 @@ class CatedraEventListenerTest {
 
     @Test
     void confirmsTheOffsetOnlyAfterTheEventWasProcessed() {
-        when(reservaService.processEvent(EVENT)).thenReturn(EventResult.without(EventOutcome.UNKNOWN_PROCESS));
+        when(reservaService.processEvent(EVENT)).thenReturn(EventResult.ignored(EventOutcome.UNKNOWN_PROCESS));
 
         listener.onEvent(PAYLOAD, acknowledgment);
 
@@ -59,7 +59,7 @@ class CatedraEventListenerTest {
 
     @Test
     void confirmsTheOffsetOfADuplicateEventToo() {
-        when(reservaService.processEvent(EVENT)).thenReturn(EventResult.without(EventOutcome.DUPLICATE));
+        when(reservaService.processEvent(EVENT)).thenReturn(EventResult.ignored(EventOutcome.DUPLICATE));
 
         listener.onEvent(PAYLOAD, acknowledgment);
 

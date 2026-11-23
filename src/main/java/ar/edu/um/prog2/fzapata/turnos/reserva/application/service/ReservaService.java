@@ -65,8 +65,7 @@ public class ReservaService {
     }
 
     public ReservationProcess startReservation(ReservationRequest request) {
-        return startReservationUseCase.startReservation(request)
-                .orElseThrow(() -> new ProfessionalNotFoundException(request.professionalId()));
+        return startReservationUseCase.startReservation(request);
     }
 
     public PagedResult<ReservationProcess> listReservations(String userId, ReservationStatus status, PageQuery page) {

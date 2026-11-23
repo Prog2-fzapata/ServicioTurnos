@@ -30,9 +30,11 @@ public class PublishPendingPhonesUseCaseImpl implements PublishPendingPhonesUseC
     private final RelayBatchPolicy relayBatchPolicy;
     private final ConflictRetryPolicy conflictRetryPolicy;
 
+    // Busca hasta el limit de OutboxEvents, publica y retorna la lista de publicados
     @Override
     public List<PhoneDelivery> publishPending() {
         List<PhoneDelivery> deliveries = new ArrayList<>();
+
         for (OutboxEvent event : outboxRepository.findPending(relayBatchPolicy.size())) {
             deliveries.add(deliver(event));
         }
@@ -41,16 +43,19 @@ public class PublishPendingPhonesUseCaseImpl implements PublishPendingPhonesUseC
 
     private PhoneDelivery deliver(OutboxEvent event) {
         try {
+            // Publicamos en Kafka el evento
             phonePublisher.publish(event.getTopic(), event.getMessageKey(), event.getPayload());
+
         } catch (PhonePublishException e) {
             event.setAttempts(event.getAttempts() + 1);
             outboxRepository.save(event);
             return new PhoneDelivery(event, false, Optional.empty());
         }
+        // markSentRetrying pasa a SENT y PHONE_SUBMITTED
         return new PhoneDelivery(event, true, markSentRetrying(event));
     }
 
-    // Si el proceso cambió mientras tanto se repite solo la actualización: el mensaje ya está publicado
+    // Marca en la BD el outbox event como SENT y cambia el estado del process
     private Optional<TransitionResult> markSentRetrying(OutboxEvent event) {
         for (int attemptNumber = 1;; attemptNumber++) {
             try {

@@ -21,16 +21,20 @@ public class PhoneDeliveryLogger {
     private final TransitionOutcomeLogger transitionOutcomeLogger;
 
     public void log(List<PhoneDelivery> deliveries) {
+
         for (PhoneDelivery delivery : deliveries) {
             String eventId = delivery.event().getEventId();
-            if (!delivery.sent()) {
+
+            if (!delivery.sent()) { // Falló, descarta el intento y queda pendiente
                 log.atWarn().setMessage("Kafka no confirmó el teléfono, queda pendiente").addKeyValue("eventId", eventId)
                         .addKeyValue("reservationProcessId", delivery.event().getReservationProcessId())
                         .addKeyValue("attempt", delivery.event().getAttempts()).log();
-            } else if (delivery.transition().isPresent()) {
+
+            } else if (delivery.transition().isPresent()) { // Transición aplicada
                 transitionOutcomeLogger.log(PHONE_EVENT_TYPE, eventId, delivery.transition().get().process().getId(),
                         delivery.transition());
-            } else {
+
+            } else { // Casto empty, ya estaba en SENT
                 log.atInfo().setMessage("El teléfono ya figuraba como enviado").addKeyValue("eventId", eventId).log();
             }
         }

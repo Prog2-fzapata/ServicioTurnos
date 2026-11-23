@@ -27,8 +27,10 @@ public interface JpaReservationProcessRepository extends JpaRepository<Reservati
             select r from ReservationProcessEntity r
             where r.status in :statuses and r.expiresAt <= :expiredUntil
             order by r.expiresAt asc, r.id asc""")
-    List<ReservationProcessEntity> findExpirable(@Param("statuses") Collection<ReservationStatus> statuses,
-            @Param("expiredUntil") Instant expiredUntil, Pageable limit);
+    List<ReservationProcessEntity> findExpirable(
+            @Param("statuses") Collection<ReservationStatus> statuses,
+            @Param("expiredUntil") Instant expiredUntil,
+            Pageable limit);
 
     @Query("""
             select r from ReservationProcessEntity r

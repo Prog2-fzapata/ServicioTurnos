@@ -5,7 +5,6 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.CatedraAppointment;
-import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Cancellation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Hold;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.HoldConfirmation;
 import ar.edu.um.prog2.fzapata.turnos.reserva.domain.model.Occupancy;
@@ -62,15 +61,6 @@ public class CatedraMapper {
                 .confirmedAt(response.getConfirmedAt())
                 .cancelledAt(response.getCancelledAt())
                 .cancellationReason(response.getCancellationReason())
-                .build();
-    }
-
-    public Cancellation toDomainModel(CancelResponse response) {
-        if (response == null) return null;
-        return Cancellation.builder()
-                .reservationId(response.getReservationId())
-                .reservationProcessId(response.getReservationProcessId())
-                .cancelledAt(response.getCancelledAt())
                 .build();
     }
 
