@@ -90,7 +90,7 @@ stateDiagram-v2
 | `HELD` | el horario está bloqueado y falta confirmarlo; también dura lo que tarda el `POST` |
 | `WAITING_PHONE` | la reserva espera el teléfono del paciente. `POST /api/reservations` responde en este estado. Con `canSubmitPhone` en `true` se puede enviar |
 | `PHONE_QUEUED` | el teléfono se recibió y está por enviarse a la cátedra |
-| `PHONE_SUBMITTED` | el teléfono se envió; se espera que la cátedra confirme o lo rechace |
+| `PHONE_SUBMITTED` | el teléfono se envió: Kafka lo recibió, pero falta que la cátedra lo acepte o lo rechace |
 | `CONFIRMED` | el turno está confirmado. Es el único estado desde el que se puede cancelar |
 | `CANCELLED`, `EXPIRED`, `FAILED` | finales: la reserva terminó y ya no cambia |
 
@@ -120,6 +120,8 @@ Los horarios libres de un profesional entre dos fechas: su agenda, menos lo que 
   ]
 }
 ```
+
+Una lista vacía (`"slots": []`) es una respuesta válida: no hay horarios libres en el rango.
 
 Errores: `400 INVALID_DATE_RANGE` (rango invertido o de más de 31 días), `400 BAD_REQUEST` (falta un parámetro o no tiene el formato), `400 PROFESSIONAL_DISABLED` (el profesional o su categoría están deshabilitados), `404 PROFESSIONAL_NOT_FOUND`, `503 CATALOG_UNAVAILABLE` y `503 CATEDRA_UNAVAILABLE`. Si cualquiera de los dos servicios falla no se devuelve una disponibilidad parcial.
 
@@ -170,7 +172,7 @@ Envía el teléfono del paciente. Solo se acepta con la reserva en `WAITING_PHON
 { "phoneNumber": "+54 9 261 555-1234" }
 ```
 
-El número se normaliza (se quitan espacios, guiones, paréntesis y puntos) y debe quedar entre 7 y 15 dígitos con un `+` opcional; se envía tal cual, sin completar el código de país ([decisión 014](decisiones/014-envio-del-telefono-con-outbox.md)). La respuesta es `202` con la reserva en `PHONE_QUEUED`: el resultado final llega después, cuando la cátedra confirma o rechaza, y la app lo sabe por el [stream](#get-apireservationsstream) o consultando.
+El número se normaliza (se quitan espacios, guiones, paréntesis y puntos) y debe quedar entre 7 y 15 dígitos con un `+` opcional; se envía tal cual, sin completar el código de país ni quitar el `0` o el `15` (se aceptan, por ejemplo, `+5492616159550`, `2616159550` o `(0261) 615-9550`) ([decisión 014](decisiones/014-envio-del-telefono-con-outbox.md)). La respuesta es `202` con la reserva en `PHONE_QUEUED`: el resultado final llega después, cuando la cátedra confirma o rechaza, y la app lo sabe por el [stream](#get-apireservationsstream) o consultando.
 
 | HTTP | `code` | Cuándo |
 |---|---|---|
@@ -291,3 +293,12 @@ Las reglas del acuerdo entre los dos servicios:
 ## Lo que turnos usa de la cátedra
 
 Turnos habla con la API de la cátedra con el **JWT técnico** del proyecto, que nunca llega a la aplicación ([decisión 008](decisiones/008-cliente-de-la-catedra.md)). Usa cinco operaciones: las ocupaciones de un profesional, crear un bloqueo, confirmarlo, listar las reservas y cancelar. Los eventos de la cátedra llegan por Kafka y el teléfono del paciente sale por Kafka ([idempotencia-y-recuperacion.md](idempotencia-y-recuperacion.md)).
+
+Los errores de la cátedra se traducen por `status` y `code`, nunca por el texto:
+
+| Respuesta de la cátedra | Qué hace turnos |
+|---|---|
+| Rechazo funcional (`SLOT_ALREADY_HELD`, `SLOT_ALREADY_RESERVED`, `PROFESSIONAL_NOT_FOUND`, `PROFESSIONAL_DISABLED`, `INVALID_SLOT`, `HOLD_NOT_FOUND`, `HOLD_EXPIRED`, `RESERVATION_PROCESS_ALREADY_CONFIRMED`, `RESERVATION_NOT_FOUND`, `RESERVATION_NOT_CANCELLABLE`) | cada caso de uso decide qué responder; no se reintenta. Un `409` de horario ocupado nunca se toma como «ese hold es mío» |
+| `401` o `403` (por ejemplo, un `CATEDRA_JWT` vencido o de otra cuenta) | error de configuración: `500` genérico, y el log lo señala sin mostrar el token |
+| Otro `4xx` o un cuerpo ilegible | desajuste con el contrato: `500` genérico |
+| `5xx`, timeout o conexión caída | se reintenta si la operación se puede repetir; si se agotan los intentos, `503 CATEDRA_UNAVAILABLE` ([resiliencia.md](resiliencia.md)) |

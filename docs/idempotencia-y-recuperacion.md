@@ -30,6 +30,17 @@ flowchart TD
     X2 -. "la reserva queda sin actualizar" .-> V["La resuelven el vencimiento<br/>y la recuperación al arrancar"]
 ```
 
+Cada evento lleva su `eventId`, su `eventType` y el `reservationProcessId` de la reserva (la clave del mensaje), y su efecto es:
+
+| Evento | Efecto en la reserva |
+|---|---|
+| `AdditionalInformationRequested` | guarda su `eventId` como `requestEventId` (hay que devolverlo con el teléfono) y deja la reserva en `WAITING_PHONE` |
+| `AdditionalInformationRejected` | vuelve a `WAITING_PHONE`: la cátedra rechazó el teléfono |
+| `AppointmentConfirmed` | `CONFIRMED`, con el `reservationId` de la cátedra |
+| `AppointmentProcessExpired` | `EXPIRED`, con el motivo |
+| `AppointmentProcessInvalid` | `FAILED`, con el motivo |
+| `AppointmentCancelled` | `CANCELLED`, con el motivo |
+
 - **Se ignoran y se registran**, para no trabar la lectura de los que siguen: un evento repetido (`DUPLICATE`), de una reserva que no existe, de un tipo que no se trata o un paso que el diagrama no permite desde el estado actual. Reentregarlos no los arregla.
 - **Un mensaje que no se puede interpretar** (JSON inválido, sin `eventId`, `eventType` o `reservationProcessId`) se descarta sin reintentos.
 - **Los reintentos** son `CATEDRA_KAFKA_MAX_RETRIES` (3 por defecto) con espera inicial `CATEDRA_KAFKA_INITIAL_BACKOFF` (1 segundo), que se duplica. Agotados, el mensaje se descarta y se sigue; no hay cola de eventos muertos: una reserva que se quede sin su evento la recupera la reconciliación.
