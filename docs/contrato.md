@@ -96,6 +96,20 @@ stateDiagram-v2
 
 El estado solo avanza: un aviso tardío o repetido de la cátedra nunca hace retroceder una reserva. La única vuelta atrás es de `PHONE_QUEUED` o `PHONE_SUBMITTED` a `WAITING_PHONE`, cuando la cátedra rechaza el teléfono. Las reglas completas están en [maquina-de-estados.md](maquina-de-estados.md).
 
+### Motivos de una falla o un vencimiento
+
+`failureReason` queda con un valor cuando la reserva termina en `FAILED` o `EXPIRED`. No es un conjunto cerrado: un cliente debe tratarlo como texto y mostrar un mensaje genérico si no reconoce el valor.
+
+| Valor | Estado | Cuándo |
+|---|---|---|
+| `SLOT_ALREADY_HELD`, `SLOT_ALREADY_RESERVED`, `PROFESSIONAL_DISABLED`, `PROFESSIONAL_NOT_FOUND`, `INVALID_SLOT` | `FAILED` | la cátedra rechazó el pedido de bloqueo con ese motivo |
+| `CATEDRA_NOT_REACHED` | `FAILED` | la cátedra no se pudo alcanzar al pedir el bloqueo, así que nada llegó a ella |
+| `HOLD_RESULT_UNKNOWN` | `FAILED` | se pidió el bloqueo y no se conoce el resultado (la cátedra no respondió, o el servicio se cayó con el pedido en curso); el bloqueo que la cátedra haya creado vence solo |
+| `HOLD_NOT_FOUND` | `FAILED` | al confirmar, el bloqueo ya no existía |
+| `UNEXPECTED_ERROR` | `FAILED` | un error inesperado al pedir o al confirmar el bloqueo, o un rechazo de la cátedra que no corresponde a ese paso |
+| `HOLD_EXPIRED` | `EXPIRED` | el bloqueo o la espera del teléfono venció, o la cátedra informó el vencimiento al confirmar |
+| el motivo que informa la cátedra | `EXPIRED` o `FAILED` | la cátedra avisó por Kafka que el proceso venció o es inválido; se guarda tal cual |
+
 ## Operaciones
 
 ### Disponibilidad
@@ -270,6 +284,7 @@ Todos los errores salen como `application/problem+json`, con el mismo formato qu
 | 406 | `NOT_ACCEPTABLE` | el formato de respuesta pedido no está disponible |
 | 409 | `SLOT_UNAVAILABLE`, `RESERVATION_EXPIRED`, `RESERVATION_NOT_CANCELLABLE`, `INVALID_RESERVATION_STATE`, `RESERVATION_CONFLICT` | ver cada operación |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | el `Content-Type` no está soportado |
+| 4xx | `REQUEST_ERROR` | cualquier otro error 4xx que arma Spring por su cuenta y no tiene código propio; conserva su estado HTTP |
 | 500 | `INTERNAL_ERROR` | un error inesperado, incluido un desajuste con catálogo o con la cátedra; el detalle es genérico a propósito, sin mensajes internos |
 | 503 | `CATALOG_UNAVAILABLE` | catálogo no responde |
 | 503 | `CATEDRA_UNAVAILABLE` | la cátedra no responde |
